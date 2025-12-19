@@ -3,6 +3,16 @@ interface Env {
   VECTORIZE: VectorizeIndex;
 }
 
+// Cloudflare docs URLs for each device type
+const DOC_URLS: Record<string, string> = {
+  "cisco-ios": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/cisco-ios-xe/",
+  "fortinet": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/fortinet/",
+  "paloalto": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/palo-alto/",
+  "juniper": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/juniper/",
+  "cisco-sdwan": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/viptela/",
+  "ipsec-params": "https://developers.cloudflare.com/magic-wan/reference/tunnels/",
+};
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -23,9 +33,18 @@ export default {
       return handlePopulate(env);
     }
 
+    if (request.method === "POST" && url.pathname === "/refresh-docs") {
+      return handleRefreshDocs(env);
+    }
+
     return new Response(getHtml(), {
       headers: { "Content-Type": "text/html" },
     });
+  },
+
+  // Scheduled handler - runs daily at midnight UTC
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(refreshDocsFromCloudflare(env));
   },
 };
 
@@ -229,7 +248,8 @@ ${params.enableNatT ? "- Include NAT-T config (nat force-encap or equivalent)" :
 
 Generate the ${getDeviceName(params.deviceType)} configuration:`;
 
-    const aiResponse = await env.AI.run("@cf/meta/llama-3.1-70b-instruct", {
+    // Use Qwen 2.5 Coder - optimized for code/config generation
+    const aiResponse = await env.AI.run("@cf/qwen/qwen2.5-coder-32b-instruct", {
       prompt,
       max_tokens: 2048,
       temperature: 0.1,
@@ -282,6 +302,141 @@ async function handlePopulate(env: Env): Promise<Response> {
   return new Response(JSON.stringify({ success: true, inserted }), {
     headers: { "Content-Type": "application/json" },
   });
+}
+
+async function handleRefreshDocs(env: Env): Promise<Response> {
+  try {
+    const result = await refreshDocsFromCloudflare(env);
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String(error) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
+async function refreshDocsFromCloudflare(env: Env): Promise<{ success: boolean; updated: number; sources: string[] }> {
+  const vectors: VectorizeVector[] = [];
+  const sources: string[] = [];
+
+  for (const [deviceType, url] of Object.entries(DOC_URLS)) {
+    try {
+      // Fetch the documentation page
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Cloudflare-Worker-MWAN-Config-Generator/1.0",
+          "Accept": "text/html",
+        },
+      });
+
+      if (!response.ok) {
+        console.error(`Failed to fetch ${url}: ${response.status}`);
+        continue;
+      }
+
+      const html = await response.text();
+
+      // Extract code blocks and relevant content from HTML
+      const docContent = extractDocContent(html, deviceType);
+
+      if (!docContent) {
+        console.error(`No content extracted from ${url}`);
+        continue;
+      }
+
+      // Generate embedding
+      const embedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+        text: docContent,
+      });
+
+      if (embedding.data && embedding.data[0]) {
+        const tunnelType = deviceType === "ipsec-params" ? "ipsec" : "ipsec";
+        // Truncate text to fit Vectorize 10KB metadata limit
+        const truncatedText = docContent.length > 8000 ? docContent.substring(0, 8000) + "\n[TRUNCATED]" : docContent;
+        vectors.push({
+          id: `live-${deviceType}-config`,
+          values: embedding.data[0],
+          metadata: {
+            deviceType: deviceType === "ipsec-params" ? "all" : deviceType,
+            tunnelType,
+            section: "live-docs",
+            source: url,
+            text: truncatedText,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        sources.push(url);
+      }
+    } catch (error) {
+      console.error(`Error processing ${url}:`, error);
+    }
+  }
+
+  // Upsert vectors
+  if (vectors.length > 0) {
+    await env.VECTORIZE.upsert(vectors);
+  }
+
+  return { success: true, updated: vectors.length, sources };
+}
+
+function extractDocContent(html: string, deviceType: string): string | null {
+  // Extract code blocks (between <pre> or ```...```)
+  const codeBlocks: string[] = [];
+
+  // Match <pre><code>...</code></pre> blocks
+  const preCodeRegex = /<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi;
+  let match;
+  while ((match = preCodeRegex.exec(html)) !== null) {
+    const code = match[1]
+      .replace(/<[^>]+>/g, "") // Remove HTML tags
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .trim();
+    if (code.length > 50) {
+      codeBlocks.push(code);
+    }
+  }
+
+  // Also match standalone <pre> blocks
+  const preRegex = /<pre[^>]*>([\s\S]*?)<\/pre>/gi;
+  while ((match = preRegex.exec(html)) !== null) {
+    const code = match[1]
+      .replace(/<[^>]+>/g, "")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .trim();
+    if (code.length > 50 && !codeBlocks.includes(code)) {
+      codeBlocks.push(code);
+    }
+  }
+
+  if (codeBlocks.length === 0) {
+    return null;
+  }
+
+  // Build context with device type prefix
+  const deviceNames: Record<string, string> = {
+    "cisco-ios": "Cisco IOS-XE",
+    "fortinet": "Fortinet FortiGate",
+    "paloalto": "Palo Alto Networks",
+    "juniper": "Juniper SRX",
+    "cisco-sdwan": "Cisco SD-WAN Viptela",
+    "ipsec-params": "Magic WAN IPsec Parameters",
+  };
+
+  const prefix = `${deviceNames[deviceType] || deviceType} configuration for Cloudflare Magic WAN. MUST use IKEv2 (NOT IKEv1/ISAKMP). Anti-replay MUST be disabled.\n\nEXACT CONFIGURATION FROM CLOUDFLARE DOCS:\n`;
+
+  return prefix + codeBlocks.join("\n\n---\n\n");
 }
 
 function getDeviceName(deviceType: string): string {

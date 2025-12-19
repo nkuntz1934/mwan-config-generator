@@ -42,7 +42,10 @@ Generated configurations use Cloudflare's recommended settings:
 Default mode using pre-defined templates for each device type. Produces consistent, well-tested configurations.
 
 ### AI-Powered Generation
-Optional mode using Workers AI (Llama 3.1 70B) with Vectorize for RAG-based generation. Queries embedded documentation to generate configurations dynamically.
+Optional mode using Workers AI (Qwen 2.5 Coder 32B) with Vectorize for RAG-based generation. Queries embedded documentation to generate configurations dynamically. The Qwen 2.5 Coder model is optimized for code/config generation with capabilities matching GPT-4o.
+
+### Scheduled Documentation Refresh
+A daily cron job fetches the latest Cloudflare documentation pages, extracts configuration examples, generates embeddings, and updates the Vectorize index. This ensures AI-generated configs stay current with Cloudflare's documentation.
 
 ### NAT-T Support
 Adds NAT Traversal configuration when the device is behind NAT/CGNAT. Configures UDP port 4500 encapsulation per device type.
@@ -173,13 +176,25 @@ Response includes:
 - `fallback`: Boolean indicating fallback to template
 
 ### `POST /populate`
-Populates Vectorize index with documentation chunks.
+Populates Vectorize index with static documentation chunks.
 
 Response:
 ```json
 {
   "success": true,
   "inserted": 10
+}
+```
+
+### `POST /refresh-docs`
+Fetches latest documentation from Cloudflare docs website, extracts code blocks, generates embeddings, and updates Vectorize. Also runs automatically daily via cron.
+
+Response:
+```json
+{
+  "success": true,
+  "updated": 5,
+  "sources": ["https://developers.cloudflare.com/magic-wan/..."]
 }
 ```
 
