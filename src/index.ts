@@ -200,34 +200,34 @@ async function handleGenerateAI(request: Request, env: Env): Promise<Response> {
     const customerIp = getCustomerIp(params.interfaceAddress);
 
     // Generate config using AI
-    const prompt = `You are an expert network engineer generating device configurations for Cloudflare Magic WAN.
+    const prompt = `You are generating device configurations for Cloudflare Magic WAN.
 
-Generate a complete, copy-paste ready ${params.tunnelType.toUpperCase()} configuration for ${getDeviceName(params.deviceType)}.
+CRITICAL RULES - FOLLOW EXACTLY:
+1. Use ONLY the configuration syntax from the REFERENCE DOCUMENTATION below
+2. Do NOT use IKEv1 (crypto isakmp) - ONLY use IKEv2 (crypto ikev2)
+3. Do NOT invent or hallucinate any commands not shown in the documentation
+4. Copy the exact command structure from the documentation, substituting only the values
 
-TUNNEL DETAILS:
+TUNNEL PARAMETERS:
 - Tunnel Name: ${params.tunnelName}
-- Tunnel Type: ${params.tunnelType}
 - Cloudflare Endpoint: ${params.cloudflareEndpoint}
-- Customer Endpoint: ${params.customerEndpoint}
+- Customer WAN IP: ${params.customerEndpoint || "YOUR_WAN_IP"}
 - Customer Tunnel IP: ${customerIp}
-- Interface Subnet: /31
-${params.tunnelType === "ipsec" ? `- Tunnel FQDN: ${params.tunnelFqdn}
-- Pre-Shared Key: ${params.psk}
+${params.tunnelType === "ipsec" ? `- Pre-Shared Key: ${params.psk}
 - Account FQDN: ${params.accountId}.ipsec.cloudflare.com
 - NAT-T Enabled: ${params.enableNatT}` : ""}
 
-REFERENCE DOCUMENTATION:
+REFERENCE DOCUMENTATION (USE THIS EXACTLY):
 ${context}
 
-REQUIREMENTS:
-1. Generate ONLY the device configuration commands - no explanations or markdown
-2. Include comments with ! or # appropriate for the device type
-3. Use the exact parameter values provided above
-4. Follow Cloudflare's recommended settings from the documentation
-5. ${params.tunnelType === "ipsec" ? "CRITICAL: Anti-replay MUST be disabled" : "Use appropriate MTU (1476) and MSS (1436) for GRE"}
-${params.enableNatT ? "6. Include NAT-T configuration as specified in the documentation" : ""}
+OUTPUT REQUIREMENTS:
+- Generate ONLY device commands with comments (! or #)
+- No markdown, no explanations, no notes
+- Substitute the TUNNEL PARAMETERS into the REFERENCE DOCUMENTATION config
+${params.tunnelType === "ipsec" ? "- Anti-replay MUST be disabled (set security-association replay disable)" : "- MTU 1476, MSS 1436 for GRE"}
+${params.enableNatT ? "- Include NAT-T config (nat force-encap or equivalent)" : ""}
 
-Generate the configuration now:`;
+Generate the ${getDeviceName(params.deviceType)} configuration:`;
 
     const aiResponse = await env.AI.run("@cf/meta/llama-3.1-70b-instruct", {
       prompt,
@@ -310,14 +310,45 @@ interface DocChunk {
 function getDocChunks(): DocChunk[] {
   return [
     {
-      id: "cisco-ios-ipsec-overview",
-      text: "Cisco IOS-XE IPsec Configuration for Magic WAN. Use IKEv2 with DH group 20 (384-bit ECDH). Encryption should be AES-256-CBC or AES-256-GCM. Integrity algorithms: SHA-256, SHA-384, or SHA-512. IKE lifetime: 86400 seconds (24 hours). IPsec lifetime: 28800 seconds (8 hours). Anti-replay must be disabled. MTU: 1450, TCP MSS: 1350.",
-      metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
-    },
-    {
-      id: "cisco-ios-ipsec-profile",
-      text: "Cisco IOS-XE IKEv2 Profile: For NAT-T, add 'nat force-encap' to force UDP encapsulation on port 4500. Use local identity as FQDN format: <account_id>.ipsec.cloudflare.com. Configure dpd 10 3 periodic for dead peer detection.",
-      metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "ikev2-profile", source: "developers.cloudflare.com" }
+      id: "cisco-ios-ipsec-full-config",
+      text: `Cisco IOS-XE IPsec Configuration for Magic WAN. MUST use IKEv2 (crypto ikev2), NOT IKEv1/ISAKMP.
+EXACT CONFIG:
+crypto ikev2 proposal CF_PROPOSAL
+ encryption aes-cbc-256
+ integrity sha512 sha384 sha256
+ group 20
+crypto ikev2 policy CF_POLICY
+ match fvrf any
+ proposal CF_PROPOSAL
+crypto ikev2 keyring CF_KEYRING
+ peer CLOUDFLARE
+  address <cloudflare_endpoint>
+  pre-shared-key <psk>
+crypto ikev2 profile CF_PROFILE
+ match identity remote address <cloudflare_endpoint> 255.255.255.255
+ identity local fqdn <account_id>.ipsec.cloudflare.com
+ authentication remote pre-share
+ authentication local pre-share
+ keyring local CF_KEYRING
+ lifetime 86400
+ dpd 10 3 periodic
+ no config-exchange request
+crypto ipsec profile CF_IPSEC_PROFILE
+ set security-association lifetime kilobytes disable
+ set security-association replay disable
+ set pfs group20
+ set ikev2-profile CF_PROFILE
+interface Tunnel1
+ ip address <customer_ip> 255.255.255.254
+ ip mtu 1450
+ ip tcp adjust-mss 1350
+ tunnel source <customer_wan_ip>
+ tunnel mode ipsec ipv4
+ tunnel destination <cloudflare_endpoint>
+ tunnel path-mtu-discovery
+ tunnel protection ipsec profile CF_IPSEC_PROFILE
+For NAT-T add: nat force-encap under crypto ikev2 profile`,
+      metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "full-config", source: "developers.cloudflare.com" }
     },
     {
       id: "fortinet-ipsec-overview",
@@ -406,7 +437,7 @@ function generateCiscoIos(p: ConfigParams): string {
 interface Tunnel1
  description Cloudflare Magic WAN - ${p.tunnelName}
  ip address ${customerIp} 255.255.255.254
- tunnel source ${p.customerEndpoint}
+ tunnel source ${p.customerEndpoint || "<YOUR_WAN_IP>"}
  tunnel destination ${p.cloudflareEndpoint}
  tunnel mode gre ip
  ip mtu 1476
@@ -466,7 +497,7 @@ crypto ipsec profile CF-MWAN-IPSEC-PROFILE
 interface Tunnel1
  description Cloudflare Magic WAN - ${p.tunnelName} (${p.tunnelFqdn})
  ip address ${customerIp} 255.255.255.254
- tunnel source ${p.customerEndpoint}
+ tunnel source ${p.customerEndpoint || "<YOUR_WAN_IP>"}
  tunnel mode ipsec ipv4
  tunnel destination ${p.cloudflareEndpoint}
  tunnel protection ipsec profile CF-MWAN-IPSEC-PROFILE
@@ -551,7 +582,7 @@ config system gre-tunnel
     edit "CF-MWAN-${p.tunnelName}"
         set interface "wan1"
         set remote-gw ${p.cloudflareEndpoint}
-        set local-gw ${p.customerEndpoint}
+        set local-gw ${p.customerEndpoint || "<YOUR_WAN_IP>"}
     next
 end
 
@@ -676,7 +707,7 @@ set network ike gateway CF_MWAN_GW protocol ikev2 dpd enable yes
 set network ike gateway CF_MWAN_GW protocol ikev2 ike-crypto-profile CF_IKE_Crypto
 set network ike gateway CF_MWAN_GW protocol version ikev2${p.enableNatT ? "\nset network ike gateway CF_MWAN_GW protocol ikev2 nat-traversal enable" : ""}
 set network ike gateway CF_MWAN_GW local-address interface ethernet1/1
-set network ike gateway CF_MWAN_GW local-address ip ${p.customerEndpoint}
+set network ike gateway CF_MWAN_GW local-address ip ${p.customerEndpoint || "<YOUR_WAN_IP>"}
 set network ike gateway CF_MWAN_GW peer-address ip ${p.cloudflareEndpoint}
 ${accountFqdn ? `set network ike gateway CF_MWAN_GW local-id type fqdn id ${accountFqdn}` : ""}
 
@@ -718,7 +749,7 @@ function generateJuniper(p: ConfigParams): string {
 # Tunnel: ${p.tunnelName}
 
 set interfaces gr-0/0/0 unit 0 description "Cloudflare Magic WAN - ${p.tunnelName}"
-set interfaces gr-0/0/0 unit 0 tunnel source ${p.customerEndpoint}
+set interfaces gr-0/0/0 unit 0 tunnel source ${p.customerEndpoint || "<YOUR_WAN_IP>"}
 set interfaces gr-0/0/0 unit 0 tunnel destination ${p.cloudflareEndpoint}
 set interfaces gr-0/0/0 unit 0 family inet address ${customerIp}/31
 set interfaces gr-0/0/0 unit 0 family inet mtu 1476
@@ -752,7 +783,7 @@ set security ike policy cf_ike_pol pre-shared-key ascii-text "${p.psk}"
 set security ike gateway cf_gw ike-policy cf_ike_pol
 set security ike gateway cf_gw address ${p.cloudflareEndpoint}
 set security ike gateway cf_gw external-interface ge-0/0/0.0
-set security ike gateway cf_gw local-address ${p.customerEndpoint}
+set security ike gateway cf_gw local-address ${p.customerEndpoint || "<YOUR_WAN_IP>"}
 set security ike gateway cf_gw version v2-only${p.enableNatT ? "\nset security ike gateway cf_gw nat-keepalive 10" : ""}
 ${accountFqdn ? `set security ike gateway cf_gw local-identity fqdn ${accountFqdn}` : ""}
 
@@ -802,7 +833,7 @@ function generateUbiquiti(p: ConfigParams): string {
 
 set interfaces tunnel tun0 description "Cloudflare Magic WAN - ${p.tunnelName}"
 set interfaces tunnel tun0 encapsulation gre
-set interfaces tunnel tun0 local-ip ${p.customerEndpoint}
+set interfaces tunnel tun0 local-ip ${p.customerEndpoint || "<YOUR_WAN_IP>"}
 set interfaces tunnel tun0 remote-ip ${p.cloudflareEndpoint}
 set interfaces tunnel tun0 address ${customerIp}/31
 set interfaces tunnel tun0 mtu 1476
@@ -843,7 +874,7 @@ set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} description "Cloudflare 
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication mode pre-shared-secret
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication pre-shared-secret "${p.psk}"
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} ike-group CF-IKE
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} local-address ${p.customerEndpoint}
+set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} local-address ${p.customerEndpoint || "<YOUR_WAN_IP>"}
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti bind vti0
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti esp-group CF-ESP${p.enableNatT ? `\nset vpn ipsec site-to-site peer ${p.cloudflareEndpoint} force-udp-encapsulation` : ""}
 
