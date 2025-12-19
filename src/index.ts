@@ -40,6 +40,7 @@ interface ConfigParams {
   tunnelFqdn: string;
   psk: string;
   accountId: string;
+  enableNatT: boolean;
 }
 
 async function handleFetchTunnels(request: Request): Promise<Response> {
@@ -126,6 +127,7 @@ async function handleGenerate(request: Request): Promise<Response> {
     tunnelFqdn: formData.get("tunnelFqdn") as string,
     psk: formData.get("psk") as string,
     accountId: formData.get("accountId") as string,
+    enableNatT: formData.get("enableNatT") === "true",
   };
 
   const config = generateConfig(params);
@@ -218,7 +220,7 @@ crypto ikev2 profile CF-MWAN-PROFILE
  authentication local pre-share
  keyring local CF-MWAN-KEYRING
  lifetime 86400
- dpd 10 3 periodic
+ dpd 10 3 periodic${p.enableNatT ? "\n nat force-encap" : ""}
 
 ! ============================================
 ! IPsec Transform Set
@@ -293,7 +295,7 @@ vpn 0
    version 2
    rekey 86400
    cipher-suite aes256-cbc-sha256
-   group 20
+   group 20${p.enableNatT ? "\n   nat-t enable" : ""}
    authentication-type
     pre-shared-key
      pre-shared-secret ${p.psk}
@@ -368,7 +370,7 @@ config vpn ipsec phase1-interface
         set dhgrp 20
         set remote-gw ${p.cloudflareEndpoint}
         set psksecret ${p.psk}
-        set keylife 86400
+        set keylife 86400${p.enableNatT ? "\n        set nattraversal enable" : ""}
 ${accountFqdn ? `        set localid "${accountFqdn}"` : ""}
     next
 end
@@ -447,7 +449,7 @@ set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto lifetime h
 set network ike gateway CF_MWAN_GW authentication pre-shared-key key ${p.psk}
 set network ike gateway CF_MWAN_GW protocol ikev2 dpd enable yes
 set network ike gateway CF_MWAN_GW protocol ikev2 ike-crypto-profile CF_IKE_Crypto
-set network ike gateway CF_MWAN_GW protocol version ikev2
+set network ike gateway CF_MWAN_GW protocol version ikev2${p.enableNatT ? "\nset network ike gateway CF_MWAN_GW protocol ikev2 nat-traversal enable" : ""}
 set network ike gateway CF_MWAN_GW local-address interface ethernet1/1
 set network ike gateway CF_MWAN_GW local-address ip ${p.customerEndpoint}
 set network ike gateway CF_MWAN_GW peer-address ip ${p.cloudflareEndpoint}
@@ -526,7 +528,7 @@ set security ike gateway cf_gw ike-policy cf_ike_pol
 set security ike gateway cf_gw address ${p.cloudflareEndpoint}
 set security ike gateway cf_gw external-interface ge-0/0/0.0
 set security ike gateway cf_gw local-address ${p.customerEndpoint}
-set security ike gateway cf_gw version v2-only
+set security ike gateway cf_gw version v2-only${p.enableNatT ? "\nset security ike gateway cf_gw nat-keepalive 10" : ""}
 ${accountFqdn ? `set security ike gateway cf_gw local-identity fqdn ${accountFqdn}` : ""}
 
 # ============================================
@@ -618,7 +620,7 @@ set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication pre-share
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} ike-group CF-IKE
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} local-address ${p.customerEndpoint}
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti bind vti0
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti esp-group CF-ESP
+set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti esp-group CF-ESP${p.enableNatT ? `\nset vpn ipsec site-to-site peer ${p.cloudflareEndpoint} force-udp-encapsulation` : ""}
 
 set vpn ipsec ipsec-interfaces interface eth0
 
@@ -1032,6 +1034,78 @@ function getHtml(): string {
 
     .psk-field.visible { display: block; }
 
+    /* NAT-T Field */
+    .nat-t-field {
+      display: none;
+    }
+
+    .nat-t-field.visible { display: block; }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .checkbox-input {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .checkbox-box {
+      width: 18px;
+      height: 18px;
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      background: var(--bg-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+
+    .checkbox-box::after {
+      content: '';
+      width: 10px;
+      height: 10px;
+      background: var(--cf-orange);
+      border-radius: 2px;
+      opacity: 0;
+      transform: scale(0);
+      transition: all 0.15s;
+    }
+
+    .checkbox-input:checked + .checkbox-box {
+      border-color: var(--cf-orange);
+    }
+
+    .checkbox-input:checked + .checkbox-box::after {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .checkbox-input:focus + .checkbox-box {
+      box-shadow: 0 0 0 3px rgba(246, 130, 31, 0.15);
+    }
+
+    .checkbox-text {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .checkbox-hint {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.375rem;
+      padding-left: 1.625rem;
+    }
+
     /* Output Panel */
     .output-panel {
       background: var(--bg-secondary);
@@ -1286,6 +1360,15 @@ function getHtml(): string {
             <input type="password" class="form-input" id="psk" placeholder="Enter tunnel PSK">
           </div>
 
+          <div class="form-group nat-t-field" id="natTField">
+            <label class="checkbox-label">
+              <input type="checkbox" id="enableNatT" class="checkbox-input">
+              <span class="checkbox-box"></span>
+              <span class="checkbox-text">Enable NAT-T</span>
+            </label>
+            <div class="checkbox-hint">Enable if device is behind NAT/CGNAT (uses UDP port 4500)</div>
+          </div>
+
           <div class="divider"></div>
 
           <div class="form-group">
@@ -1427,12 +1510,14 @@ function getHtml(): string {
       const idx = document.getElementById('tunnelSelect').value;
       const info = document.getElementById('tunnelInfo');
       const pskField = document.getElementById('pskField');
+      const natTField = document.getElementById('natTField');
       const generateBtn = document.getElementById('generateBtn');
 
       if (idx === '') {
         selectedTunnel = null;
         info.classList.remove('visible');
         pskField.classList.remove('visible');
+        natTField.classList.remove('visible');
         generateBtn.disabled = true;
         return;
       }
@@ -1446,15 +1531,17 @@ function getHtml(): string {
       document.getElementById('infoInterface').textContent = selectedTunnel.interface_address;
       info.classList.add('visible');
 
-      // Show PSK field only for IPsec
+      // Show PSK and NAT-T fields only for IPsec
       if (selectedTunnel.tunnelType === 'ipsec') {
         pskField.classList.add('visible');
+        natTField.classList.add('visible');
         generateBtn.disabled = true; // Will enable when PSK entered
         document.getElementById('psk').oninput = function() {
           generateBtn.disabled = !this.value.trim();
         };
       } else {
         pskField.classList.remove('visible');
+        natTField.classList.remove('visible');
         generateBtn.disabled = false;
       }
     }
@@ -1474,6 +1561,7 @@ function getHtml(): string {
       formData.append('tunnelFqdn', selectedTunnel.fqdn || '');
       formData.append('psk', document.getElementById('psk').value || '');
       formData.append('accountId', accountId);
+      formData.append('enableNatT', document.getElementById('enableNatT').checked ? 'true' : 'false');
 
       try {
         const res = await fetch('/generate', { method: 'POST', body: formData });
@@ -1518,6 +1606,7 @@ function getHtml(): string {
       document.getElementById('apiToken').value = '';
       document.getElementById('tunnelSelect').innerHTML = '<option value="">Choose a tunnel...</option>';
       document.getElementById('psk').value = '';
+      document.getElementById('enableNatT').checked = false;
 
       // Reset UI
       document.getElementById('statusDot').classList.remove('connected');
@@ -1540,6 +1629,7 @@ function getHtml(): string {
 
       document.getElementById('tunnelInfo').classList.remove('visible');
       document.getElementById('pskField').classList.remove('visible');
+      document.getElementById('natTField').classList.remove('visible');
       document.getElementById('generateBtn').disabled = true;
 
       document.getElementById('disconnectBtn').style.display = 'none';
