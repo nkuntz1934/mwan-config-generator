@@ -1,5 +1,10 @@
+interface Env {
+  AI: Ai;
+  VECTORIZE: VectorizeIndex;
+}
+
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "POST" && url.pathname === "/api/tunnels") {
@@ -8,6 +13,14 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/generate") {
       return handleGenerate(request);
+    }
+
+    if (request.method === "POST" && url.pathname === "/generate-ai") {
+      return handleGenerateAI(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/populate") {
+      return handlePopulate(env);
     }
 
     return new Response(getHtml(), {
@@ -135,6 +148,218 @@ async function handleGenerate(request: Request): Promise<Response> {
   return new Response(JSON.stringify({ config }), {
     headers: { "Content-Type": "application/json" },
   });
+}
+
+async function handleGenerateAI(request: Request, env: Env): Promise<Response> {
+  const formData = await request.formData();
+
+  const params: ConfigParams = {
+    deviceType: formData.get("deviceType") as string,
+    tunnelType: formData.get("tunnelType") as string,
+    tunnelName: formData.get("tunnelName") as string,
+    cloudflareEndpoint: formData.get("cloudflareEndpoint") as string,
+    customerEndpoint: formData.get("customerEndpoint") as string,
+    interfaceAddress: formData.get("interfaceAddress") as string,
+    tunnelFqdn: formData.get("tunnelFqdn") as string,
+    psk: formData.get("psk") as string,
+    accountId: formData.get("accountId") as string,
+    enableNatT: formData.get("enableNatT") === "true",
+  };
+
+  try {
+    // Generate embedding for the query
+    const queryText = `${getDeviceName(params.deviceType)} ${params.tunnelType} configuration for Magic WAN tunnel ${params.enableNatT ? "with NAT-T enabled" : ""}`;
+
+    const queryEmbedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+      text: queryText,
+    });
+
+    if (!queryEmbedding.data || !queryEmbedding.data[0]) {
+      throw new Error("Failed to generate query embedding");
+    }
+
+    // Query Vectorize for relevant documentation
+    const matches = await env.VECTORIZE.query(queryEmbedding.data[0], {
+      topK: 8,
+      filter: {
+        deviceType: { $in: [params.deviceType, "all"] },
+        tunnelType: { $in: [params.tunnelType, "all"] },
+      },
+      returnMetadata: "all",
+    });
+
+    // Build context from matched documents
+    const context = matches.matches
+      .map((m) => {
+        const text = m.metadata?.text || "";
+        return `[${m.metadata?.section}]: ${text}`;
+      })
+      .join("\n\n");
+
+    // Calculate customer IP from interface address
+    const customerIp = getCustomerIp(params.interfaceAddress);
+
+    // Generate config using AI
+    const prompt = `You are an expert network engineer generating device configurations for Cloudflare Magic WAN.
+
+Generate a complete, copy-paste ready ${params.tunnelType.toUpperCase()} configuration for ${getDeviceName(params.deviceType)}.
+
+TUNNEL DETAILS:
+- Tunnel Name: ${params.tunnelName}
+- Tunnel Type: ${params.tunnelType}
+- Cloudflare Endpoint: ${params.cloudflareEndpoint}
+- Customer Endpoint: ${params.customerEndpoint}
+- Customer Tunnel IP: ${customerIp}
+- Interface Subnet: /31
+${params.tunnelType === "ipsec" ? `- Tunnel FQDN: ${params.tunnelFqdn}
+- Pre-Shared Key: ${params.psk}
+- Account FQDN: ${params.accountId}.ipsec.cloudflare.com
+- NAT-T Enabled: ${params.enableNatT}` : ""}
+
+REFERENCE DOCUMENTATION:
+${context}
+
+REQUIREMENTS:
+1. Generate ONLY the device configuration commands - no explanations or markdown
+2. Include comments with ! or # appropriate for the device type
+3. Use the exact parameter values provided above
+4. Follow Cloudflare's recommended settings from the documentation
+5. ${params.tunnelType === "ipsec" ? "CRITICAL: Anti-replay MUST be disabled" : "Use appropriate MTU (1476) and MSS (1436) for GRE"}
+${params.enableNatT ? "6. Include NAT-T configuration as specified in the documentation" : ""}
+
+Generate the configuration now:`;
+
+    const aiResponse = await env.AI.run("@cf/meta/llama-3.1-70b-instruct", {
+      prompt,
+      max_tokens: 2048,
+      temperature: 0.1,
+    });
+
+    const config = typeof aiResponse === "string"
+      ? aiResponse
+      : (aiResponse as { response?: string }).response || "";
+
+    return new Response(JSON.stringify({ config, aiGenerated: true }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    // Fallback to template-based generation
+    const config = generateConfig(params);
+    return new Response(JSON.stringify({ config, aiGenerated: false, fallback: true }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
+async function handlePopulate(env: Env): Promise<Response> {
+  const DOC_CHUNKS = getDocChunks();
+  const vectors: VectorizeVector[] = [];
+
+  for (const chunk of DOC_CHUNKS) {
+    const embedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+      text: chunk.text,
+    });
+
+    if (embedding.data && embedding.data[0]) {
+      vectors.push({
+        id: chunk.id,
+        values: embedding.data[0],
+        metadata: { ...chunk.metadata, text: chunk.text },
+      });
+    }
+  }
+
+  // Upsert in batches
+  const batchSize = 50;
+  let inserted = 0;
+
+  for (let i = 0; i < vectors.length; i += batchSize) {
+    const batch = vectors.slice(i, i + batchSize);
+    await env.VECTORIZE.upsert(batch);
+    inserted += batch.length;
+  }
+
+  return new Response(JSON.stringify({ success: true, inserted }), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function getDeviceName(deviceType: string): string {
+  const names: Record<string, string> = {
+    "cisco-ios": "Cisco IOS/IOS-XE",
+    "cisco-sdwan": "Cisco SD-WAN (Viptela)",
+    "fortinet": "Fortinet FortiGate",
+    "paloalto": "Palo Alto Networks",
+    "juniper": "Juniper SRX",
+    "ubiquiti": "Ubiquiti/VyOS",
+  };
+  return names[deviceType] || deviceType;
+}
+
+interface DocChunk {
+  id: string;
+  text: string;
+  metadata: {
+    deviceType: string;
+    tunnelType: string;
+    section: string;
+    source: string;
+  };
+}
+
+function getDocChunks(): DocChunk[] {
+  return [
+    {
+      id: "cisco-ios-ipsec-overview",
+      text: "Cisco IOS-XE IPsec Configuration for Magic WAN. Use IKEv2 with DH group 20 (384-bit ECDH). Encryption should be AES-256-CBC or AES-256-GCM. Integrity algorithms: SHA-256, SHA-384, or SHA-512. IKE lifetime: 86400 seconds (24 hours). IPsec lifetime: 28800 seconds (8 hours). Anti-replay must be disabled. MTU: 1450, TCP MSS: 1350.",
+      metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "cisco-ios-ipsec-profile",
+      text: "Cisco IOS-XE IKEv2 Profile: For NAT-T, add 'nat force-encap' to force UDP encapsulation on port 4500. Use local identity as FQDN format: <account_id>.ipsec.cloudflare.com. Configure dpd 10 3 periodic for dead peer detection.",
+      metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "ikev2-profile", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "fortinet-ipsec-overview",
+      text: "Fortinet FortiGate IPsec Configuration for Magic WAN. CRITICAL: Must enable asymmetric routing (set asymroute-icmp enable) and set IKE port to 4500 (set ike-port 4500). Use IKEv2 with AES-256-GCM and DH group 20. Phase 1 keylife: 86400 seconds. Phase 2 must disable replay. For NAT-T, set nattraversal enable in phase1-interface.",
+      metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "paloalto-ipsec-overview",
+      text: "Palo Alto Networks IPsec Configuration for Magic WAN. Use IKEv2 with DH group 20 and AES-256-CBC encryption. IKE lifetime: 24 hours. IPsec lifetime: 8 hours. Anti-replay must be disabled (set anti-replay no). For NAT-T, configure nat-traversal enable on the IKE gateway.",
+      metadata: { deviceType: "paloalto", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "juniper-ipsec-overview",
+      text: "Juniper SRX IPsec Configuration for Magic WAN. Use IKEv2 only (version v2-only). DH group 20 with AES-256-CBC. IKE lifetime: 86400 seconds. IPsec lifetime: 28800 seconds. Anti-replay must be disabled (no-anti-replay). For NAT-T, set nat-keepalive 10 on the IKE gateway.",
+      metadata: { deviceType: "juniper", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "cisco-sdwan-ipsec-overview",
+      text: "Cisco SD-WAN (Viptela) IPsec Configuration for Magic WAN. IPsec is only supported on Cisco 8000v in router mode. Use IKEv2 with cipher-suite aes256-cbc-sha256 and group 20. IKE rekey 86400, IPsec rekey 28800. Replay window must be 0 (disabled). For NAT-T, add 'nat-t enable' in the IKE section.",
+      metadata: { deviceType: "cisco-sdwan", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "ubiquiti-ipsec-overview",
+      text: "Ubiquiti EdgeRouter / VyOS IPsec Configuration for Magic WAN. Use IKEv2 with AES-256 and SHA-256. DH group 20. IKE lifetime: 86400 seconds. ESP lifetime: 28800 seconds. For NAT-T, use force-udp-encapsulation on the site-to-site peer.",
+      metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "mwan-ipsec-params",
+      text: "Magic WAN IPsec Parameters: IKE Version IKEv2 only, DH Group 20 (384-bit ECDH), Encryption AES-256-CBC or AES-256-GCM, Integrity SHA-256/384/512, IKE Lifetime 86400 seconds, IPsec Lifetime 28800 seconds, Anti-Replay MUST be disabled, PFS Group 20, MTU 1450, TCP MSS 1350.",
+      metadata: { deviceType: "all", tunnelType: "ipsec", section: "parameters", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "mwan-gre-params",
+      text: "Magic WAN GRE Parameters: MTU 1476, TCP MSS 1436, Keepalive 10 seconds with 3 retries recommended.",
+      metadata: { deviceType: "all", tunnelType: "gre", section: "parameters", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "mwan-anti-replay",
+      text: "Magic WAN Anti-Replay: MUST be disabled on customer device. Cloudflare uses anycast, packets may arrive at different data centers. Cisco IOS: set security-association replay disable. Fortinet: set replay disable. Palo Alto: set anti-replay no. Juniper: set no-anti-replay. Viptela: replay-window 0.",
+      metadata: { deviceType: "all", tunnelType: "ipsec", section: "anti-replay", source: "developers.cloudflare.com" }
+    },
+  ];
 }
 
 function generateConfig(p: ConfigParams): string {
@@ -1382,6 +1607,15 @@ function getHtml(): string {
               <option value="ubiquiti">Ubiquiti / VyOS</option>
             </select>
           </div>
+
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="useAI" class="checkbox-input">
+              <span class="checkbox-box"></span>
+              <span class="checkbox-text">Use AI Generation</span>
+            </label>
+            <div class="checkbox-hint">Generate config using Workers AI with current documentation context</div>
+          </div>
         </div>
         <div class="card-footer">
           <button class="btn btn-primary" id="generateBtn" onclick="generateConfig()" disabled>
@@ -1548,7 +1782,8 @@ function getHtml(): string {
 
     async function generateConfig() {
       const btn = document.getElementById('generateBtn');
-      btn.innerHTML = '<div class="spinner"></div> Generating...';
+      const useAI = document.getElementById('useAI').checked;
+      btn.innerHTML = useAI ? '<div class="spinner"></div> Generating with AI...' : '<div class="spinner"></div> Generating...';
       btn.disabled = true;
 
       const formData = new FormData();
@@ -1564,7 +1799,8 @@ function getHtml(): string {
       formData.append('enableNatT', document.getElementById('enableNatT').checked ? 'true' : 'false');
 
       try {
-        const res = await fetch('/generate', { method: 'POST', body: formData });
+        const endpoint = useAI ? '/generate-ai' : '/generate';
+        const res = await fetch(endpoint, { method: 'POST', body: formData });
         const data = await res.json();
 
         // Show output
@@ -1575,11 +1811,15 @@ function getHtml(): string {
 
         // Show device badge and copy button
         const deviceSelect = document.getElementById('deviceType');
-        document.getElementById('outputDevice').textContent = deviceSelect.options[deviceSelect.selectedIndex].text;
+        let deviceLabel = deviceSelect.options[deviceSelect.selectedIndex].text;
+        if (data.aiGenerated) deviceLabel += ' (AI)';
+        if (data.fallback) deviceLabel += ' (Fallback)';
+        document.getElementById('outputDevice').textContent = deviceLabel;
         document.getElementById('outputDevice').style.display = 'block';
         document.getElementById('copyBtn').style.display = 'flex';
 
-        showToast('Configuration generated', 'success');
+        const msg = data.aiGenerated ? 'AI-generated configuration ready' : (data.fallback ? 'Generated (AI fallback to template)' : 'Configuration generated');
+        showToast(msg, 'success');
 
       } catch (e) {
         showToast('Failed to generate configuration', 'error');
@@ -1607,6 +1847,7 @@ function getHtml(): string {
       document.getElementById('tunnelSelect').innerHTML = '<option value="">Choose a tunnel...</option>';
       document.getElementById('psk').value = '';
       document.getElementById('enableNatT').checked = false;
+      document.getElementById('useAI').checked = false;
 
       // Reset UI
       document.getElementById('statusDot').classList.remove('connected');

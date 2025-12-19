@@ -9,5 +9,14 @@
       "pattern": "mwan.cf-client-demo.com",
       "custom_domain": true
     }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "mwan-docs"
+    }
   ]
 }
