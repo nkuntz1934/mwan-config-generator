@@ -37,6 +37,10 @@ export default {
       return handleRefreshDocs(env);
     }
 
+    if (request.method === "POST" && url.pathname === "/troubleshoot") {
+      return handleTroubleshoot(request, env);
+    }
+
     return new Response(getHtml(), {
       headers: { "Content-Type": "text/html" },
     });
@@ -383,6 +387,128 @@ async function refreshDocsFromCloudflare(env: Env): Promise<{ success: boolean; 
   return { success: true, updated: vectors.length, sources };
 }
 
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+interface TroubleshootContext {
+  deviceType: string;
+  tunnelType: string;
+  tunnelName: string;
+  cloudflareEndpoint: string;
+  customerEndpoint: string;
+  generatedConfig?: string;
+}
+
+interface TroubleshootRequest {
+  message: string;
+  context: TroubleshootContext;
+  history: ChatMessage[];
+}
+
+async function handleTroubleshoot(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = await request.json() as TroubleshootRequest;
+    const { message, context, history } = body;
+
+    if (!message || !context) {
+      return new Response(JSON.stringify({ error: "Missing message or context" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Build query for Vectorize to find relevant troubleshooting docs
+    const queryText = `troubleshooting ${context.deviceType} ${context.tunnelType} Magic WAN tunnel ${message}`;
+
+    const queryEmbedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+      text: queryText,
+    });
+
+    if (!queryEmbedding.data || !queryEmbedding.data[0]) {
+      throw new Error("Failed to generate query embedding");
+    }
+
+    // Query Vectorize for relevant documentation
+    const matches = await env.VECTORIZE.query(queryEmbedding.data[0], {
+      topK: 5,
+      filter: {
+        deviceType: { $in: [context.deviceType, "all"] },
+      },
+      returnMetadata: "all",
+    });
+
+    // Build context from matched documents
+    const docContext = matches.matches
+      .map((m) => {
+        const text = m.metadata?.text || "";
+        return `[${m.metadata?.section}]: ${text}`;
+      })
+      .join("\n\n");
+
+    // Build conversation history string
+    const historyStr = history
+      .map((msg) => `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}`)
+      .join("\n\n");
+
+    // Build troubleshooting system prompt
+    const prompt = `You are a Cloudflare Magic WAN troubleshooting expert. The user is having issues with their ${getDeviceName(context.deviceType)} ${context.tunnelType.toUpperCase()} tunnel configuration.
+
+TUNNEL CONTEXT:
+- Device: ${getDeviceName(context.deviceType)}
+- Tunnel Type: ${context.tunnelType.toUpperCase()}
+- Tunnel Name: ${context.tunnelName}
+- Cloudflare Endpoint: ${context.cloudflareEndpoint}
+- Customer Endpoint: ${context.customerEndpoint || "Not configured"}
+${context.generatedConfig ? `\nGENERATED CONFIG (if relevant):\n${context.generatedConfig.substring(0, 1000)}${context.generatedConfig.length > 1000 ? "\n[TRUNCATED]" : ""}` : ""}
+
+REFERENCE DOCUMENTATION:
+${docContext}
+
+TROUBLESHOOTING GUIDELINES:
+1. Analyze logs, error messages, or configs the user pastes
+2. Identify common Magic WAN issues:
+   - IKE Phase 1 failures (DH group mismatch, PSK wrong, identity issues)
+   - IKE Phase 2 failures (transform set mismatch, PFS issues)
+   - Anti-replay errors (MUST be disabled for Magic WAN)
+   - NAT-T issues (UDP 4500 encapsulation)
+   - MTU/fragmentation problems (IPsec MTU 1450, GRE MTU 1476)
+3. Provide specific fixes with exact commands for their device type
+4. Ask clarifying questions if needed
+5. Keep responses concise and actionable
+
+${historyStr ? `CONVERSATION HISTORY:\n${historyStr}\n\n` : ""}USER MESSAGE:
+${message}
+
+Provide a helpful, concise troubleshooting response:`;
+
+    // Use Qwen 2.5 Coder for response
+    const aiResponse = await env.AI.run("@cf/qwen/qwen2.5-coder-32b-instruct", {
+      prompt,
+      max_tokens: 1024,
+      temperature: 0.3,
+    });
+
+    const response = typeof aiResponse === "string"
+      ? aiResponse
+      : (aiResponse as { response?: string }).response || "";
+
+    return new Response(JSON.stringify({ response }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("Troubleshoot error:", error);
+    return new Response(JSON.stringify({
+      error: "Failed to process troubleshooting request",
+      response: "I'm sorry, I encountered an error processing your request. Please try again or rephrase your question."
+    }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
 function extractDocContent(html: string, deviceType: string): string | null {
   // Extract code blocks (between <pre> or ```...```)
   const codeBlocks: string[] = [];
@@ -544,6 +670,52 @@ For NAT-T add: nat force-encap under crypto ikev2 profile`,
       id: "mwan-anti-replay",
       text: "Magic WAN Anti-Replay: MUST be disabled on customer device. Cloudflare uses anycast, packets may arrive at different data centers. Cisco IOS: set security-association replay disable. Fortinet: set replay disable. Palo Alto: set anti-replay no. Juniper: set no-anti-replay. Viptela: replay-window 0.",
       metadata: { deviceType: "all", tunnelType: "ipsec", section: "anti-replay", source: "developers.cloudflare.com" }
+    },
+    // Troubleshooting documentation chunks
+    {
+      id: "troubleshoot-ike-phase1",
+      text: "IKE Phase 1 Troubleshooting: Common causes - Wrong PSK (check for typos, special characters), DH group mismatch (Magic WAN requires group 20), IKE version mismatch (MUST use IKEv2, NOT IKEv1/ISAKMP), wrong remote identity (use <account_id>.ipsec.cloudflare.com as local identity FQDN), firewall blocking UDP 500/4500. Cisco debug: 'debug crypto ikev2'. FortiGate: 'diagnose vpn ike log-filter'. Palo Alto: CLI 'show vpn ike-sa'. Juniper: 'show security ike security-associations'.",
+      metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-phase1", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "troubleshoot-ike-phase2",
+      text: "IKE Phase 2 Troubleshooting: Common causes - Transform set mismatch (use AES-256-CBC or AES-256-GCM with SHA-256/384/512), PFS group mismatch (use group 20), IPsec lifetime mismatch (28800 seconds recommended), anti-replay enabled (MUST be disabled). Check traffic selectors match. Cisco: 'show crypto ipsec sa'. FortiGate: 'diagnose vpn tunnel list'. Palo Alto: 'show vpn ipsec-sa'. Juniper: 'show security ipsec security-associations'.",
+      metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-phase2", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "troubleshoot-anti-replay-errors",
+      text: "Anti-Replay Error Troubleshooting: Symptom - 'Anti-replay check failed' or packet drops. Cause - Cloudflare uses anycast, packets may arrive at different data centers out of order. Solution - MUST disable anti-replay on customer device. Cisco: 'set security-association replay disable' in ipsec profile. Fortinet: 'set replay disable' in phase2-interface. Palo Alto: 'set anti-replay no'. Juniper: 'set security ipsec vpn <name> no-anti-replay'. Viptela: 'replay-window 0'.",
+      metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-anti-replay", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "troubleshoot-nat-t",
+      text: "NAT-T Troubleshooting: Use when device is behind NAT/CGNAT. Symptoms - Tunnel establishes but traffic fails, UDP 500 blocked. Solution - Enable NAT-T (UDP 4500 encapsulation). Cisco: 'nat force-encap' in ikev2 profile. Fortinet: 'set nattraversal enable' and 'set ike-port 4500'. Palo Alto: Configure NAT-T in IKE gateway. Juniper: 'set nat-keepalive 10'. Verify firewall allows UDP 4500 outbound.",
+      metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-nat-t", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "troubleshoot-mtu-fragmentation",
+      text: "MTU/Fragmentation Troubleshooting: Symptoms - Large packets fail, TCP connections hang, ICMP works but HTTP fails. Solution - Set correct MTU and TCP MSS. IPsec: MTU 1450, MSS 1350. GRE: MTU 1476, MSS 1436. Cisco: 'ip mtu 1450' and 'ip tcp adjust-mss 1350' on tunnel interface. Fortinet: Configure in phase2-interface. Test with: 'ping -s 1400 -M do <cloudflare_endpoint>'. Enable path-mtu-discovery if supported.",
+      metadata: { deviceType: "all", tunnelType: "all", section: "troubleshoot-mtu", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "troubleshoot-tunnel-down",
+      text: "Tunnel Down/Flapping Troubleshooting: Check - 1) Verify endpoints are reachable (ping <cloudflare_endpoint>), 2) Check IKE SA status, 3) Verify DPD settings (10 sec interval, 3 retries recommended), 4) Check for duplicate tunnel IDs on Cloudflare dashboard, 5) Verify routing - traffic must be directed to tunnel interface. Common logs: 'IKE negotiation failed', 'No proposal chosen', 'Invalid ID'. Check firewall rules for UDP 500/4500.",
+      metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-tunnel-down", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "troubleshoot-gre-issues",
+      text: "GRE Tunnel Troubleshooting: Check - 1) Verify tunnel source/destination IPs, 2) Check GRE protocol (47) allowed through firewall, 3) Verify MTU 1476 and MSS 1436, 4) Check keepalive settings (10 sec, 3 retries), 5) Verify interface is up ('show interface Tunnel1'). Common issues - Source interface wrong, destination unreachable, MTU too high causing fragmentation. Use 'ping' to tunnel interface IP to verify connectivity.",
+      metadata: { deviceType: "all", tunnelType: "gre", section: "troubleshoot-gre", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "troubleshoot-cisco-specific",
+      text: "Cisco IOS Troubleshooting Commands: 'show crypto ikev2 sa' - View IKEv2 security associations. 'show crypto ipsec sa' - View IPsec SA details. 'show crypto session detail' - Full session info. 'debug crypto ikev2' - IKEv2 negotiation debug (use carefully). 'show interface Tunnel1' - Tunnel interface status. 'show ip route' - Verify routing. Common fix: Ensure 'no crypto isakmp enable' to force IKEv2 only.",
+      metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "troubleshoot-cisco", source: "developers.cloudflare.com" }
+    },
+    {
+      id: "troubleshoot-fortinet-specific",
+      text: "FortiGate Troubleshooting Commands: 'diagnose vpn ike log-filter dst-addr4 <cf_ip>' - Filter IKE logs. 'diagnose debug app ike -1' - Enable IKE debug. 'get vpn ipsec tunnel summary' - Tunnel summary. 'diagnose vpn tunnel list name <tunnel>' - Detailed tunnel info. 'execute ping-options source <wan_ip>' then 'execute ping <cf_endpoint>'. Verify 'set asymroute-icmp enable' and 'set ike-port 4500' are configured.",
+      metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "troubleshoot-fortinet", source: "developers.cloudflare.com" }
     },
   ];
 }
@@ -1678,6 +1850,235 @@ function getHtml(): string {
       margin: 0 auto 1rem;
       color: var(--border-default);
     }
+
+    /* Output Tabs */
+    .output-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    .output-tab {
+      padding: 0.75rem 1.25rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .output-tab:hover:not(:disabled) {
+      color: var(--text-secondary);
+    }
+
+    .output-tab.active {
+      color: var(--cf-orange);
+      border-bottom-color: var(--cf-orange);
+    }
+
+    .output-tab:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .output-tab-icon {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Chat Container */
+    .chat-container {
+      display: none;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .chat-container.active {
+      display: flex;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .chat-message {
+      max-width: 85%;
+      padding: 0.875rem 1rem;
+      border-radius: var(--radius-lg);
+      font-size: 0.875rem;
+      line-height: 1.6;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .chat-message.user {
+      align-self: flex-end;
+      background: var(--cf-orange);
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .chat-message.assistant {
+      align-self: flex-start;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border-bottom-left-radius: 4px;
+    }
+
+    .chat-message.assistant pre {
+      background: var(--bg-primary);
+      padding: 0.75rem;
+      border-radius: var(--radius-sm);
+      overflow-x: auto;
+      margin: 0.5rem 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8125rem;
+    }
+
+    .chat-message.assistant code {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg-primary);
+      padding: 0.125rem 0.375rem;
+      border-radius: 3px;
+      font-size: 0.8125rem;
+    }
+
+    .chat-message.assistant pre code {
+      background: transparent;
+      padding: 0;
+    }
+
+    .chat-message.typing {
+      display: flex;
+      gap: 4px;
+      padding: 1rem;
+    }
+
+    .chat-message.typing span {
+      width: 8px;
+      height: 8px;
+      background: var(--text-muted);
+      border-radius: 50%;
+      animation: bounce 1.4s infinite ease-in-out;
+    }
+
+    .chat-message.typing span:nth-child(1) { animation-delay: 0s; }
+    .chat-message.typing span:nth-child(2) { animation-delay: 0.2s; }
+    .chat-message.typing span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-6px); }
+    }
+
+    .chat-welcome {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-muted);
+    }
+
+    .chat-welcome-icon {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 1rem;
+      color: var(--cf-orange);
+    }
+
+    .chat-welcome-title {
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+    }
+
+    .chat-welcome-text {
+      font-size: 0.875rem;
+      max-width: 320px;
+      margin: 0 auto;
+    }
+
+    .chat-input-area {
+      padding: 1rem;
+      border-top: 1px solid var(--border-default);
+      display: flex;
+      gap: 0.75rem;
+      background: var(--bg-tertiary);
+    }
+
+    .chat-input {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: 0.875rem;
+      font-family: inherit;
+      resize: none;
+      min-height: 44px;
+      max-height: 120px;
+    }
+
+    .chat-input:focus {
+      outline: none;
+      border-color: var(--cf-orange);
+      box-shadow: 0 0 0 3px rgba(246, 130, 31, 0.15);
+    }
+
+    .chat-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .chat-send-btn {
+      padding: 0.75rem 1rem;
+      background: var(--cf-orange);
+      color: white;
+      border: none;
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: inherit;
+    }
+
+    .chat-send-btn:hover:not(:disabled) {
+      background: var(--cf-orange-dark);
+    }
+
+    .chat-send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .chat-send-icon {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Config content wrapper */
+    .config-content {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .config-content.hidden {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -1820,26 +2221,59 @@ function getHtml(): string {
 
     <!-- Output Panel -->
     <div class="output-panel">
-      <div class="output-header">
-        <div class="output-title">
-          <svg class="card-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-          Configuration Output
+      <!-- Tab Toggle -->
+      <div class="output-tabs">
+        <button class="output-tab active" id="configTab" onclick="switchToConfig()">
+          <svg class="output-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Configuration
+        </button>
+        <button class="output-tab" id="troubleshootTab" onclick="switchToTroubleshoot()" disabled>
+          <svg class="output-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Troubleshoot
+        </button>
+      </div>
+
+      <!-- Config Content -->
+      <div class="config-content" id="configContent">
+        <div class="output-header">
+          <div class="output-title">
+            <svg class="card-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            Configuration Output
+          </div>
+          <div class="output-meta">
+            <span class="output-device" id="outputDevice" style="display: none;">-</span>
+            <button class="btn btn-secondary" id="copyBtn" onclick="copyConfig()" style="display: none; width: auto;">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy
+            </button>
+          </div>
         </div>
-        <div class="output-meta">
-          <span class="output-device" id="outputDevice" style="display: none;">-</span>
-          <button class="btn btn-secondary" id="copyBtn" onclick="copyConfig()" style="display: none; width: auto;">
-            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            Copy
-          </button>
+        <div class="output-body">
+          <div class="output-placeholder" id="outputPlaceholder">
+            <svg class="output-placeholder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <div class="output-placeholder-title">No configuration generated</div>
+            <div class="output-placeholder-text">Connect and select a tunnel to generate device configuration</div>
+          </div>
+          <pre class="code-block" id="codeBlock"></pre>
         </div>
       </div>
-      <div class="output-body">
-        <div class="output-placeholder" id="outputPlaceholder">
-          <svg class="output-placeholder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-          <div class="output-placeholder-title">No configuration generated</div>
-          <div class="output-placeholder-text">Connect and select a tunnel to generate device configuration</div>
+
+      <!-- Chat Content -->
+      <div class="chat-container" id="chatContainer">
+        <div class="chat-messages" id="chatMessages">
+          <div class="chat-welcome" id="chatWelcome">
+            <svg class="chat-welcome-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <div class="chat-welcome-title">Troubleshooting Assistant</div>
+            <div class="chat-welcome-text" id="chatWelcomeText">Paste your device logs, error messages, or describe the issue you're experiencing with your Magic WAN tunnel.</div>
+          </div>
         </div>
-        <pre class="code-block" id="codeBlock"></pre>
+        <div class="chat-input-area">
+          <textarea class="chat-input" id="chatInput" placeholder="Paste logs or describe your issue..." rows="1"></textarea>
+          <button class="chat-send-btn" id="chatSendBtn" onclick="sendChatMessage()">
+            <svg class="chat-send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Send
+          </button>
+        </div>
       </div>
     </div>
   </main>
@@ -1916,6 +2350,9 @@ function getHtml(): string {
         document.getElementById('step2Num').classList.add('active');
 
         document.getElementById('disconnectBtn').style.display = 'flex';
+
+        // Enable troubleshoot tab when connected
+        enableTroubleshootTab();
 
         showToast('Connected! Found ' + tunnelsData.length + ' tunnel' + (tunnelsData.length > 1 ? 's' : ''), 'success');
 
@@ -1995,6 +2432,9 @@ function getHtml(): string {
         codeBlock.textContent = data.config;
         codeBlock.classList.add('visible');
 
+        // Store generated config for troubleshooting context
+        generatedConfig = data.config;
+
         // Show device badge and copy button
         const deviceSelect = document.getElementById('deviceType');
         let deviceLabel = deviceSelect.options[deviceSelect.selectedIndex].text;
@@ -2067,6 +2507,11 @@ function getHtml(): string {
       document.getElementById('codeBlock').textContent = '';
       document.getElementById('outputDevice').style.display = 'none';
       document.getElementById('copyBtn').style.display = 'none';
+
+      // Reset troubleshoot chat and disable tab
+      disableTroubleshootTab();
+      resetChat();
+      switchToConfig();
     }
 
     function showToast(message, type = 'success') {
@@ -2093,6 +2538,197 @@ function getHtml(): string {
     });
     document.getElementById('accountId').addEventListener('keypress', function(e) {
       if (e.key === 'Enter') document.getElementById('apiToken').focus();
+    });
+
+    // ==========================================
+    // Troubleshooting Chat Logic
+    // ==========================================
+    let chatHistory = [];
+    let generatedConfig = '';
+    let isChatSending = false;
+
+    function switchToConfig() {
+      document.getElementById('configTab').classList.add('active');
+      document.getElementById('troubleshootTab').classList.remove('active');
+      document.getElementById('configContent').classList.remove('hidden');
+      document.getElementById('chatContainer').classList.remove('active');
+    }
+
+    function switchToTroubleshoot() {
+      if (!selectedTunnel) return;
+
+      document.getElementById('troubleshootTab').classList.add('active');
+      document.getElementById('configTab').classList.remove('active');
+      document.getElementById('configContent').classList.add('hidden');
+      document.getElementById('chatContainer').classList.add('active');
+
+      // Update welcome text with tunnel context
+      const deviceSelect = document.getElementById('deviceType');
+      const deviceName = deviceSelect.options[deviceSelect.selectedIndex].text;
+      document.getElementById('chatWelcomeText').textContent =
+        'I can help troubleshoot your ' + deviceName + ' ' + selectedTunnel.tunnelType.toUpperCase() +
+        ' tunnel "' + selectedTunnel.name + '". Paste your device logs, error messages, or describe the issue.';
+
+      // Focus on input
+      document.getElementById('chatInput').focus();
+    }
+
+    function enableTroubleshootTab() {
+      document.getElementById('troubleshootTab').disabled = false;
+    }
+
+    function disableTroubleshootTab() {
+      document.getElementById('troubleshootTab').disabled = true;
+      // If currently on troubleshoot tab, switch back to config
+      if (document.getElementById('troubleshootTab').classList.contains('active')) {
+        switchToConfig();
+      }
+    }
+
+    function resetChat() {
+      chatHistory = [];
+      generatedConfig = '';
+      const chatMessages = document.getElementById('chatMessages');
+      // Keep only the welcome message
+      chatMessages.innerHTML = \`
+        <div class="chat-welcome" id="chatWelcome">
+          <svg class="chat-welcome-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div class="chat-welcome-title">Troubleshooting Assistant</div>
+          <div class="chat-welcome-text" id="chatWelcomeText">Paste your device logs, error messages, or describe the issue you're experiencing with your Magic WAN tunnel.</div>
+        </div>
+      \`;
+    }
+
+    async function sendChatMessage() {
+      const input = document.getElementById('chatInput');
+      const message = input.value.trim();
+
+      if (!message || isChatSending || !selectedTunnel) return;
+
+      isChatSending = true;
+      const sendBtn = document.getElementById('chatSendBtn');
+      sendBtn.disabled = true;
+
+      // Hide welcome message
+      const welcome = document.getElementById('chatWelcome');
+      if (welcome) welcome.style.display = 'none';
+
+      // Add user message to UI
+      addChatMessage('user', message);
+      input.value = '';
+
+      // Add typing indicator
+      const typingId = addTypingIndicator();
+
+      // Build context
+      const deviceSelect = document.getElementById('deviceType');
+      const context = {
+        deviceType: deviceSelect.value,
+        tunnelType: selectedTunnel.tunnelType,
+        tunnelName: selectedTunnel.name,
+        cloudflareEndpoint: selectedTunnel.cloudflare_endpoint,
+        customerEndpoint: selectedTunnel.customer_endpoint,
+        generatedConfig: generatedConfig || undefined
+      };
+
+      try {
+        const res = await fetch('/troubleshoot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message,
+            context,
+            history: chatHistory.slice(-10) // Keep last 10 messages for context
+          })
+        });
+
+        const data = await res.json();
+
+        // Remove typing indicator
+        removeTypingIndicator(typingId);
+
+        // Add assistant response
+        const response = data.response || data.error || 'Sorry, I could not process your request.';
+        addChatMessage('assistant', response);
+
+        // Update history
+        chatHistory.push({ role: 'user', content: message });
+        chatHistory.push({ role: 'assistant', content: response });
+
+      } catch (error) {
+        removeTypingIndicator(typingId);
+        addChatMessage('assistant', 'Sorry, there was an error processing your request. Please try again.');
+      } finally {
+        isChatSending = false;
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+
+    function addChatMessage(role, content) {
+      const chatMessages = document.getElementById('chatMessages');
+      const msgDiv = document.createElement('div');
+      msgDiv.className = 'chat-message ' + role;
+
+      if (role === 'assistant') {
+        // Parse markdown-like formatting
+        msgDiv.innerHTML = formatMessage(content);
+      } else {
+        msgDiv.textContent = content;
+      }
+
+      chatMessages.appendChild(msgDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function formatMessage(text) {
+      // Escape HTML
+      let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+      // Code blocks
+      html = html.replace(/\`\`\`([\\s\\S]*?)\`\`\`/g, '<pre><code>$1</code></pre>');
+
+      // Inline code
+      html = html.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
+
+      // Bold
+      html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+
+      // Line breaks
+      html = html.replace(/\\n/g, '<br>');
+
+      return html;
+    }
+
+    function addTypingIndicator() {
+      const chatMessages = document.getElementById('chatMessages');
+      const typingDiv = document.createElement('div');
+      const typingId = 'typing-' + Date.now();
+      typingDiv.id = typingId;
+      typingDiv.className = 'chat-message assistant typing';
+      typingDiv.innerHTML = '<span></span><span></span><span></span>';
+      chatMessages.appendChild(typingDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return typingId;
+    }
+
+    function removeTypingIndicator(typingId) {
+      const typing = document.getElementById(typingId);
+      if (typing) typing.remove();
+    }
+
+    // Handle Enter key in chat input (Shift+Enter for new line)
+    document.getElementById('chatInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    });
+
+    // Auto-resize chat input
+    document.getElementById('chatInput').addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 120) + 'px';
     });
   </script>
 </body>

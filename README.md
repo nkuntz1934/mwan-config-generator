@@ -50,6 +50,14 @@ A daily cron job fetches the latest Cloudflare documentation pages, extracts con
 ### NAT-T Support
 Adds NAT Traversal configuration when the device is behind NAT/CGNAT. Configures UDP port 4500 encapsulation per device type.
 
+### Troubleshooting Chat
+Interactive AI-powered troubleshooting assistant for diagnosing Magic WAN tunnel issues. Users can paste device logs, error messages, or describe problems to get context-aware diagnostics and fixes. The assistant understands:
+- IKE Phase 1/2 failures
+- Anti-replay errors
+- NAT-T configuration issues
+- MTU/fragmentation problems
+- Device-specific debug commands
+
 ## Requirements
 
 - Cloudflare account with Magic WAN enabled
@@ -81,7 +89,7 @@ For AI generation:
                                v
                     +------------------+
                     |   Workers AI     |
-                    |  (Llama 3.1 70B) |
+                    | (Qwen 2.5 Coder) |
                     +------------------+
 ```
 
@@ -198,6 +206,35 @@ Response:
 }
 ```
 
+### `POST /troubleshoot`
+AI-powered troubleshooting chat endpoint.
+
+Request body:
+```json
+{
+  "message": "User's question or pasted logs",
+  "context": {
+    "deviceType": "cisco-ios",
+    "tunnelType": "ipsec",
+    "tunnelName": "tunnel-name",
+    "cloudflareEndpoint": "162.x.x.x",
+    "customerEndpoint": "203.x.x.x",
+    "generatedConfig": "optional generated config"
+  },
+  "history": [
+    {"role": "user", "content": "previous message"},
+    {"role": "assistant", "content": "previous response"}
+  ]
+}
+```
+
+Response:
+```json
+{
+  "response": "AI troubleshooting response with diagnostics and fixes"
+}
+```
+
 ## Vectorize Index
 
 The `mwan-docs` index stores embedded documentation chunks for RAG-based generation:
@@ -211,6 +248,7 @@ Documentation chunks cover:
 - Cloudflare Magic WAN IPsec/GRE parameters
 - NAT-T configuration per device
 - Anti-replay requirements
+- Troubleshooting guides for common issues
 
 ## References
 
