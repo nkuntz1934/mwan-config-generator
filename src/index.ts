@@ -804,17 +804,20 @@ function getCustomerIp(cfInterfaceAddr: string): string {
 // ============================================
 function generateCiscoIos(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
+  const cloudflareIp = getCloudflareIp(p.interfaceAddress);
   const accountFqdn = p.accountId ? `${p.accountId}.ipsec.cloudflare.com` : "";
 
   if (p.tunnelType === "gre") {
     return `! Cisco IOS/IOS-XE GRE Configuration for Cloudflare Magic WAN
 ! Tunnel: ${p.tunnelName}
-! Cloudflare Endpoint: ${p.cloudflareEndpoint}
+! Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+! Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 ! Reference: https://developers.cloudflare.com/magic-wan/reference/gre-ipsec-tunnels/
 
 interface Tunnel1
  description Cloudflare Magic WAN - ${p.tunnelName}
  ip address ${customerIp} 255.255.255.254
+ ip ospf network point-to-point
  tunnel source ${p.customerEndpoint || "<YOUR_WAN_IP>"}
  tunnel destination ${p.cloudflareEndpoint}
  tunnel mode gre ip
@@ -827,7 +830,8 @@ interface Tunnel1
 
   return `! Cisco IOS/IOS-XE IPsec Configuration for Cloudflare Magic WAN
 ! Tunnel: ${p.tunnelName}
-! Cloudflare Endpoint: ${p.cloudflareEndpoint}
+! Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+! Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 ! FQDN: ${p.tunnelFqdn}
 ! Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/cisco-ios-xe/
 
@@ -875,6 +879,7 @@ crypto ipsec profile CF-MWAN-IPSEC-PROFILE
 interface Tunnel1
  description Cloudflare Magic WAN - ${p.tunnelName} (${p.tunnelFqdn})
  ip address ${customerIp} 255.255.255.254
+ ip ospf network point-to-point
  tunnel source ${p.customerEndpoint || "<YOUR_WAN_IP>"}
  tunnel mode ipsec ipv4
  tunnel destination ${p.cloudflareEndpoint}
@@ -895,10 +900,13 @@ crypto isakmp invalid-spi-recovery
 // ============================================
 function generateCiscoSdwan(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
+  const cloudflareIp = getCloudflareIp(p.interfaceAddress);
 
   if (p.tunnelType === "gre") {
     return `! Cisco SD-WAN GRE Configuration for Cloudflare Magic WAN
 ! Tunnel: ${p.tunnelName}
+! Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+! Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 ! Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/viptela/
 
 vpn 0
@@ -915,6 +923,8 @@ vpn 0
 
   return `! Cisco SD-WAN IPsec Configuration for Cloudflare Magic WAN
 ! Tunnel: ${p.tunnelName}
+! Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+! Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 ! Note: IPsec only supported on Cisco 8000v in router mode
 ! FQDN: ${p.tunnelFqdn}
 ! Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/viptela/
@@ -956,6 +966,8 @@ function generateFortinet(p: ConfigParams): string {
   if (p.tunnelType === "gre") {
     return `# FortiGate GRE Configuration for Cloudflare Magic WAN
 # Tunnel: ${p.tunnelName}
+# Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+# Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 
 config system gre-tunnel
     edit "${p.tunnelName}"
@@ -967,7 +979,8 @@ end
 
 config system interface
     edit "${p.tunnelName}"
-        set ip ${customerIp} 255.255.255.254
+        set ip ${customerIp} 255.255.255.255
+        set remote-ip ${cloudflareIp} 255.255.255.254
         set allowaccess ping
         set mtu-override enable
         set mtu 1476
@@ -978,6 +991,8 @@ end
 
   return `# FortiGate IPsec Configuration for Cloudflare Magic WAN
 # Tunnel: ${p.tunnelName}
+# Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+# Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 # FQDN: ${p.tunnelFqdn}
 # Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/fortinet/
 
@@ -1046,11 +1061,14 @@ end
 // ============================================
 function generatePaloAlto(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
+  const cloudflareIp = getCloudflareIp(p.interfaceAddress);
   const accountFqdn = p.accountId ? `${p.accountId}.ipsec.cloudflare.com` : "";
 
   if (p.tunnelType === "gre") {
     return `# Palo Alto GRE Configuration for Cloudflare Magic WAN
 # Tunnel: ${p.tunnelName}
+# Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+# Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 # Note: Native GRE varies by PAN-OS version
 
 set network interface tunnel units tunnel.1 ip ${customerIp}/31
@@ -1062,6 +1080,8 @@ set zone Cloudflare network layer3 tunnel.1
 
   return `# Palo Alto IPsec Configuration for Cloudflare Magic WAN
 # Tunnel: ${p.tunnelName}
+# Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+# Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 # FQDN: ${p.tunnelFqdn}
 # Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/palo-alto/
 
@@ -1124,11 +1144,14 @@ set zone Cloudflare network layer3 tunnel.1
 // ============================================
 function generateJuniper(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
+  const cloudflareIp = getCloudflareIp(p.interfaceAddress);
   const accountFqdn = p.accountId ? `${p.accountId}.ipsec.cloudflare.com` : "";
 
   if (p.tunnelType === "gre") {
     return `# Juniper SRX GRE Configuration for Cloudflare Magic WAN
 # Tunnel: ${p.tunnelName}
+# Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+# Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 
 set interfaces gr-0/0/0 unit 0 description "Cloudflare Magic WAN - ${p.tunnelName}"
 set interfaces gr-0/0/0 unit 0 tunnel source ${p.customerEndpoint || "<YOUR_WAN_IP>"}
@@ -1143,6 +1166,8 @@ set security zones security-zone cloudflare interfaces gr-0/0/0.0 host-inbound-t
 
   return `# Juniper SRX IPsec Configuration for Cloudflare Magic WAN
 # Tunnel: ${p.tunnelName}
+# Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+# Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 # FQDN: ${p.tunnelFqdn}
 # Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/juniper/
 
@@ -1208,10 +1233,13 @@ set security zones security-zone cloudflare interfaces st0.0 host-inbound-traffi
 // ============================================
 function generateUbiquiti(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
+  const cloudflareIp = getCloudflareIp(p.interfaceAddress);
 
   if (p.tunnelType === "gre") {
     return `# Ubiquiti/VyOS GRE Configuration for Cloudflare Magic WAN
 # Tunnel: ${p.tunnelName}
+# Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+# Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 
 set interfaces tunnel tun0 description "Cloudflare Magic WAN - ${p.tunnelName}"
 set interfaces tunnel tun0 encapsulation gre
@@ -1226,6 +1254,8 @@ set interfaces tunnel tun0 mtu 1476
 
   return `# Ubiquiti/VyOS IPsec Configuration for Cloudflare Magic WAN
 # Tunnel: ${p.tunnelName}
+# Tunnel Endpoint (public): ${p.cloudflareEndpoint}
+# Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 # FQDN: ${p.tunnelFqdn}
 
 # ============================================
