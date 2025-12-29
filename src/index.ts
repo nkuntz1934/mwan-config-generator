@@ -403,7 +403,7 @@ async function refreshDocsFromCloudflare(env: Env): Promise<{ success: boolean; 
       });
 
       if (embedding.data && embedding.data[0]) {
-        const tunnelType = deviceType === "ipsec-params" ? "ipsec" : "ipsec";
+        const tunnelType = "ipsec"; // All doc pages are IPsec-focused
         // Truncate text to fit Vectorize 10KB metadata limit
         const truncatedText = docContent.length > 8000 ? docContent.substring(0, 8000) + "\n[TRUNCATED]" : docContent;
         vectors.push({
@@ -679,7 +679,7 @@ For NAT-T add: nat force-encap under crypto ikev2 profile`,
     },
     {
       id: "fortinet-ipsec-overview",
-      text: "Fortinet FortiGate IPsec Configuration for Magic WAN. CRITICAL: Must enable asymmetric routing (set asymroute-icmp enable) and set IKE port to 4500 (set ike-port 4500). Use IKEv2 with AES-256-GCM and DH group 20. Phase 1 keylife: 86400 seconds. Phase 2 must disable replay. For NAT-T, set nattraversal enable in phase1-interface.",
+      text: "Fortinet FortiGate IPsec Configuration for Magic WAN. CRITICAL: Must enable asymmetric routing (set asymroute-icmp enable). Use IKEv2 with AES-256-GCM and DH group 20. Phase 1 keylife: 86400 seconds. Phase 2 must disable replay. Phase1 interface name has 15-character limit. For NAT-T, set nattraversal enable and set ike-port 4500 (WARNING: ike-port is a global setting affecting all tunnels).",
       metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
     },
     {
@@ -760,7 +760,7 @@ For NAT-T add: nat force-encap under crypto ikev2 profile`,
     },
     {
       id: "troubleshoot-fortinet-specific",
-      text: "FortiGate Troubleshooting Commands: 'diagnose vpn ike log-filter dst-addr4 <cf_ip>' - Filter IKE logs. 'diagnose debug app ike -1' - Enable IKE debug. 'get vpn ipsec tunnel summary' - Tunnel summary. 'diagnose vpn tunnel list name <tunnel>' - Detailed tunnel info. 'execute ping-options source <wan_ip>' then 'execute ping <cf_endpoint>'. Verify 'set asymroute-icmp enable' and 'set ike-port 4500' are configured.",
+      text: "FortiGate Troubleshooting Commands: 'diagnose vpn ike log-filter dst-addr4 <cf_ip>' - Filter IKE logs. 'diagnose debug app ike -1' - Enable IKE debug. 'get vpn ipsec tunnel summary' - Tunnel summary. 'diagnose vpn tunnel list name <tunnel>' - Detailed tunnel info. 'execute ping-options source <wan_ip>' then 'execute ping <cf_endpoint>'. Verify 'set asymroute-icmp enable' is configured. If using NAT-T, also verify 'set ike-port 4500' (global setting).",
       metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "troubleshoot-fortinet", source: "developers.cloudflare.com" }
     },
   ];
