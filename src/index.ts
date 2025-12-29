@@ -784,6 +784,11 @@ function generateConfig(p: ConfigParams): string {
   return generator(p);
 }
 
+// Helper to get Cloudflare side IP from interface address (just strip /31)
+function getCloudflareIp(cfInterfaceAddr: string): string {
+  return cfInterfaceAddr.split("/")[0];
+}
+
 // Helper to get customer side IP from Cloudflare's interface address
 function getCustomerIp(cfInterfaceAddr: string): string {
   const ip = cfInterfaceAddr.split("/")[0];
@@ -945,6 +950,7 @@ vpn 0
 // ============================================
 function generateFortinet(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
+  const cloudflareIp = getCloudflareIp(p.interfaceAddress);
   const accountFqdn = p.accountId ? `${p.accountId}.ipsec.cloudflare.com` : "";
 
   if (p.tunnelType === "gre") {
@@ -1022,12 +1028,12 @@ config vpn ipsec phase2-interface
 end
 
 # ============================================
-# Tunnel Interface
+# Tunnel Interface - Remote IP is CF side of /31
 # ============================================
 config system interface
     edit "${p.tunnelName}"
         set ip ${customerIp} 255.255.255.255
-        set remote-ip ${p.cloudflareEndpoint} 255.255.255.254
+        set remote-ip ${cloudflareIp} 255.255.255.254
         set allowaccess ping
     next
 end
