@@ -173,6 +173,49 @@ async function handleGenerate(request: Request): Promise<Response> {
   });
 }
 
+// Helper to detect and remove repetitive patterns from AI output
+function cleanRepetitiveOutput(text: string): string {
+  const lines = text.split("\n");
+  const cleanedLines: string[] = [];
+  const seenLines = new Set<string>();
+  let consecutiveRepeats = 0;
+  let lastLine = "";
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Allow some repeated lines (empty, comments) but limit them
+    if (trimmed === lastLine && trimmed !== "" && !trimmed.startsWith("#") && !trimmed.startsWith("!")) {
+      consecutiveRepeats++;
+      if (consecutiveRepeats > 2) {
+        continue; // Skip after 2 consecutive repeats
+      }
+    } else {
+      consecutiveRepeats = 0;
+    }
+
+    // Track unique config lines to detect repetition loops
+    const normalized = trimmed.toLowerCase().replace(/\s+/g, " ");
+    if (normalized.length > 20 && seenLines.has(normalized)) {
+      // Check if we're in a loop (same meaningful line seen before)
+      const occurrences = cleanedLines.filter(l =>
+        l.trim().toLowerCase().replace(/\s+/g, " ") === normalized
+      ).length;
+      if (occurrences >= 2) {
+        continue; // Skip if we've seen this line twice already
+      }
+    }
+
+    if (normalized.length > 20) {
+      seenLines.add(normalized);
+    }
+
+    cleanedLines.push(line);
+    lastLine = trimmed;
+  }
+
+  return cleanedLines.join("\n");
+}
+
 async function handleGenerateAI(request: Request, env: Env): Promise<Response> {
   const formData = await request.formData();
 
@@ -259,9 +302,12 @@ Generate the ${getDeviceName(params.deviceType)} configuration:`;
       temperature: 0.1,
     });
 
-    const config = typeof aiResponse === "string"
+    const rawConfig = typeof aiResponse === "string"
       ? aiResponse
       : (aiResponse as { response?: string }).response || "";
+
+    // Clean up any repetitive patterns from AI output
+    const config = cleanRepetitiveOutput(rawConfig);
 
     return new Response(JSON.stringify({ config, aiGenerated: true }), {
       headers: { "Content-Type": "application/json" },
@@ -906,7 +952,7 @@ function generateFortinet(p: ConfigParams): string {
 # Tunnel: ${p.tunnelName}
 
 config system gre-tunnel
-    edit "CF-MWAN-${p.tunnelName}"
+    edit "${p.tunnelName}"
         set interface "wan1"
         set remote-gw ${p.cloudflareEndpoint}
         set local-gw ${p.customerEndpoint || "<YOUR_WAN_IP>"}
@@ -914,7 +960,7 @@ config system gre-tunnel
 end
 
 config system interface
-    edit "CF-MWAN-${p.tunnelName}"
+    edit "${p.tunnelName}"
         set ip ${customerIp} 255.255.255.254
         set allowaccess ping
         set mtu-override enable
@@ -934,17 +980,20 @@ end
 # ============================================
 config system settings
     set asymroute-icmp enable
-end
+end${p.enableNatT ? `
 
+# WARNING: This is a GLOBAL setting that affects ALL tunnels on this device!
+# Only apply if you need NAT-T for Magic WAN and understand the impact.
 config system global
     set ike-port 4500
-end
+end` : ""}
 
 # ============================================
 # Phase 1 - AES-GCM-256, DH Group 20
+# NOTE: Phase1 interface name has 15-character limit
 # ============================================
 config vpn ipsec phase1-interface
-    edit "CF-MWAN-${p.tunnelName}"
+    edit "${p.tunnelName}"
         set interface "wan1"
         set ike-version 2
         set peertype any
@@ -962,8 +1011,8 @@ end
 # Phase 2 - Replay MUST be disabled
 # ============================================
 config vpn ipsec phase2-interface
-    edit "CF-MWAN-${p.tunnelName}-P2"
-        set phase1name "CF-MWAN-${p.tunnelName}"
+    edit "${p.tunnelName}-P2"
+        set phase1name "${p.tunnelName}"
         set proposal aes256gcm
         set dhgrp 20
         set replay disable
@@ -976,7 +1025,7 @@ end
 # Tunnel Interface
 # ============================================
 config system interface
-    edit "CF-MWAN-${p.tunnelName}"
+    edit "${p.tunnelName}"
         set ip ${customerIp} 255.255.255.255
         set remote-ip ${p.cloudflareEndpoint} 255.255.255.254
         set allowaccess ping
