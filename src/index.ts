@@ -1080,6 +1080,9 @@ set zone Cloudflare network layer3 tunnel.1
 `;
   }
 
+  const gwName = `CF_Magic_WAN_IKE_${p.tunnelName.toUpperCase().replace(/-/g, "_")}`;
+  const ipsecName = `CF_Magic_WAN_IPsec_${p.tunnelName.toUpperCase().replace(/-/g, "_")}`;
+
   return `# Palo Alto IPsec Configuration for Cloudflare Magic WAN
 # Tunnel: ${p.tunnelName}
 # Tunnel Endpoint (public): ${p.cloudflareEndpoint}
@@ -1088,55 +1091,64 @@ set zone Cloudflare network layer3 tunnel.1
 # Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/palo-alto/
 
 # ============================================
-# IKE Crypto Profile - DH Group 20, AES-256-CBC
+# IKE Crypto Profile (Phase 1)
 # ============================================
-set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto hash sha512 sha384 sha256
-set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto dh-group group20
-set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto encryption aes-256-cbc
-set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto lifetime hours 24
+set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto_CBC hash [ sha512 sha384 sha256 ]
+set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto_CBC dh-group [ group20 ]
+set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto_CBC encryption aes-256-cbc
+set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto_CBC lifetime hours 24
+set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto_CBC authentication-multiple 0
 
 # ============================================
-# IPsec Crypto Profile
+# IPsec Crypto Profile (Phase 2)
 # ============================================
-set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto esp authentication sha256 sha1
-set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto esp encryption aes-256-cbc
-set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto dh-group group20
-set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto lifetime hours 8
+set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto_CBC esp authentication [ sha256 sha1 ]
+set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto_CBC esp encryption aes-256-cbc
+set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto_CBC lifetime hours 8
+set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto_CBC dh-group group20
 
 # ============================================
 # IKE Gateway
 # ============================================
-set network ike gateway CF_MWAN_GW authentication pre-shared-key key ${p.psk}
-set network ike gateway CF_MWAN_GW protocol ikev2 dpd enable yes
-set network ike gateway CF_MWAN_GW protocol ikev2 ike-crypto-profile CF_IKE_Crypto
-set network ike gateway CF_MWAN_GW protocol version ikev2${p.enableNatT ? "\nset network ike gateway CF_MWAN_GW protocol ikev2 nat-traversal enable" : ""}
-set network ike gateway CF_MWAN_GW local-address interface ethernet1/1
-set network ike gateway CF_MWAN_GW local-address ip ${p.customerEndpoint || "<YOUR_WAN_IP>"}
-set network ike gateway CF_MWAN_GW peer-address ip ${p.cloudflareEndpoint}
-${accountFqdn ? `set network ike gateway CF_MWAN_GW local-id type fqdn id ${accountFqdn}` : ""}
+set network ike gateway ${gwName} protocol ikev1 dpd enable yes
+set network ike gateway ${gwName} protocol ikev2 dpd enable yes
+set network ike gateway ${gwName} protocol ikev2 ike-crypto-profile CF_IKE_Crypto_CBC
+set network ike gateway ${gwName} protocol version ikev2
+set network ike gateway ${gwName} local-address interface ethernet1/1
+set network ike gateway ${gwName} local-address ip ${p.customerEndpoint || "<YOUR_WAN_IP>"}
+set network ike gateway ${gwName} protocol-common nat-traversal enable ${p.enableNatT ? "yes" : "no"}
+set network ike gateway ${gwName} protocol-common fragmentation enable no
+set network ike gateway ${gwName} peer-address ip ${p.cloudflareEndpoint}
+set network ike gateway ${gwName} authentication pre-shared-key key ${p.psk}
+set network ike gateway ${gwName} local-id id ${p.tunnelFqdn}
+set network ike gateway ${gwName} local-id type fqdn
+set network ike gateway ${gwName} disabled no
 
 # ============================================
-# Tunnel Interface - MTU 1450, Allow Ping
+# Tunnel Interface
 # ============================================
 set network interface tunnel units tunnel.1 ip ${customerIp}/31
 set network interface tunnel units tunnel.1 mtu 1450
-set network interface tunnel units tunnel.1 comment "Cloudflare Magic WAN - ${p.tunnelName}"
-
-set network profiles interface-management-profile Allow_Ping ping yes
 set network interface tunnel units tunnel.1 interface-management-profile Allow_Ping
 
+# Create Allow_Ping management profile if it doesn't exist
+set network profiles interface-management-profile Allow_Ping ping yes
+
 # ============================================
-# IPsec Tunnel - Disable anti-replay
+# IPsec Tunnel
 # ============================================
-set network tunnel ipsec CF_MWAN_IPsec auto-key ike-gateway CF_MWAN_GW
-set network tunnel ipsec CF_MWAN_IPsec auto-key ipsec-crypto-profile CF_IPsec_Crypto
-set network tunnel ipsec CF_MWAN_IPsec tunnel-interface tunnel.1
-set network tunnel ipsec CF_MWAN_IPsec anti-replay no
+set network tunnel ipsec ${ipsecName} auto-key ike-gateway ${gwName}
+set network tunnel ipsec ${ipsecName} auto-key ipsec-crypto-profile CF_IPsec_Crypto_CBC
+set network tunnel ipsec ${ipsecName} tunnel-monitor destination-ip ${cloudflareIp}
+set network tunnel ipsec ${ipsecName} tunnel-monitor tunnel-monitor-profile default
+set network tunnel ipsec ${ipsecName} tunnel-interface tunnel.1
+set network tunnel ipsec ${ipsecName} anti-replay no
+set network tunnel ipsec ${ipsecName} disabled no
 
 # ============================================
 # Zone
 # ============================================
-set zone Cloudflare network layer3 tunnel.1
+set zone Cloudflare_L3_Zone network layer3 tunnel.1
 `;
 }
 
