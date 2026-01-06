@@ -818,7 +818,7 @@ interface Tunnel1
  description Cloudflare Magic WAN - ${p.tunnelName}
  ip address ${customerIp} 255.255.255.254
  ip ospf network point-to-point
- tunnel source ${p.customerEndpoint || "<YOUR_WAN_IP>"}
+ tunnel source ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
  tunnel destination ${p.cloudflareEndpoint}
  tunnel mode gre ip
  ip mtu 1476
@@ -883,7 +883,7 @@ interface Tunnel1
  ip address ${customerIp} 255.255.255.254
  ip mtu 1450
  ip tcp adjust-mss 1350
- tunnel source ${p.customerEndpoint || "<YOUR_WAN_IP>"}
+ tunnel source ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
  tunnel mode ipsec ipv4
  tunnel destination ${p.cloudflareEndpoint}
  tunnel path-mtu-discovery
@@ -975,7 +975,7 @@ config system gre-tunnel
     edit "${p.tunnelName}"
         set interface "wan1"
         set remote-gw ${p.cloudflareEndpoint}
-        set local-gw ${p.customerEndpoint || "<YOUR_WAN_IP>"}
+        set local-gw ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
     next
 end
 
@@ -1115,7 +1115,7 @@ set network ike gateway ${gwName} protocol ikev2 dpd enable yes
 set network ike gateway ${gwName} protocol ikev2 ike-crypto-profile CF_IKE_Crypto_CBC
 set network ike gateway ${gwName} protocol version ikev2
 set network ike gateway ${gwName} local-address interface ethernet1/1
-set network ike gateway ${gwName} local-address ip ${p.customerEndpoint || "<YOUR_WAN_IP>"}
+set network ike gateway ${gwName} local-address ip ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
 set network ike gateway ${gwName} protocol-common nat-traversal enable ${p.enableNatT ? "yes" : "no"}
 set network ike gateway ${gwName} protocol-common fragmentation enable no
 set network ike gateway ${gwName} peer-address ip ${p.cloudflareEndpoint}
@@ -1168,7 +1168,7 @@ function generateJuniper(p: ConfigParams): string {
 # Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 
 set interfaces gr-0/0/0 unit 0 description "Cloudflare Magic WAN - ${p.tunnelName}"
-set interfaces gr-0/0/0 unit 0 tunnel source ${p.customerEndpoint || "<YOUR_WAN_IP>"}
+set interfaces gr-0/0/0 unit 0 tunnel source ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
 set interfaces gr-0/0/0 unit 0 tunnel destination ${p.cloudflareEndpoint}
 set interfaces gr-0/0/0 unit 0 family inet address ${customerIp}/31
 set interfaces gr-0/0/0 unit 0 family inet mtu 1476
@@ -1282,7 +1282,7 @@ function generateUbiquiti(p: ConfigParams): string {
 
 set interfaces tunnel tun0 description "Cloudflare Magic WAN - ${p.tunnelName}"
 set interfaces tunnel tun0 encapsulation gre
-set interfaces tunnel tun0 local-ip ${p.customerEndpoint || "<YOUR_WAN_IP>"}
+set interfaces tunnel tun0 local-ip ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
 set interfaces tunnel tun0 remote-ip ${p.cloudflareEndpoint}
 set interfaces tunnel tun0 address ${customerIp}/31
 set interfaces tunnel tun0 mtu 1476
@@ -1331,7 +1331,7 @@ set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication mode pre-
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication pre-shared-secret "${p.psk}"
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication remote-id ${p.cloudflareEndpoint}
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} ike-group CF-MWAN-IKE
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} local-address ${p.customerEndpoint || "<YOUR_WAN_IP>"}
+set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} local-address ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti bind vti0
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti esp-group CF-MWAN-ESP${p.enableNatT ? `
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} force-udp-encapsulation` : ""}
@@ -2299,9 +2299,9 @@ function getHtml(): string {
                   <span class="tunnel-info-value" id="infoCfEndpoint">-</span>
                 </div>
                 <div class="tunnel-info-row">
-                  <span class="tunnel-info-label">Customer Endpoint (WAN IP)</span>
-                  <input type="text" class="form-input form-input-inline" id="infoCustEndpoint" placeholder="e.g. 203.0.113.10">
-                  <div class="field-hint">Your device's public WAN IP address (tunnel source)</div>
+                  <span class="tunnel-info-label">Tunnel Source <span style="color: var(--accent-orange);">*</span></span>
+                  <input type="text" class="form-input form-input-inline" id="infoCustEndpoint" placeholder="e.g. 203.0.113.10 or GigabitEthernet0/0/1">
+                  <div class="field-hint">Your WAN IP address or interface name (used as tunnel source)</div>
                 </div>
                 <div class="tunnel-info-row">
                   <span class="tunnel-info-label">Interface Address</span>
@@ -2600,6 +2600,12 @@ function getHtml(): string {
     }
 
     function copyConfig() {
+      const tunnelSource = document.getElementById('infoCustEndpoint').value.trim();
+      if (!tunnelSource) {
+        showToast('Please enter your Tunnel Source (WAN IP or interface) before copying', 'error');
+        document.getElementById('infoCustEndpoint').focus();
+        return;
+      }
       const config = document.getElementById('codeBlock').textContent;
       navigator.clipboard.writeText(config);
       showToast('Copied to clipboard', 'success');
