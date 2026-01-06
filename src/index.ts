@@ -1178,6 +1178,8 @@ set security zones security-zone cloudflare interfaces gr-0/0/0.0 host-inbound-t
 `;
   }
 
+  const tunnelId = p.tunnelName.toLowerCase().replace(/-/g, "_");
+
   return `# Juniper SRX IPsec Configuration for Cloudflare Magic WAN
 # Tunnel: ${p.tunnelName}
 # Tunnel Endpoint (public): ${p.cloudflareEndpoint}
@@ -1186,59 +1188,82 @@ set security zones security-zone cloudflare interfaces gr-0/0/0.0 host-inbound-t
 # Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/juniper/
 
 # ============================================
-# IKE Proposal - DH Group 20, AES-256-CBC
+# Tunnel Interface (st0)
 # ============================================
-set security ike proposal cf_ike_prop authentication-method pre-shared-keys
-set security ike proposal cf_ike_prop dh-group group20
-set security ike proposal cf_ike_prop authentication-algorithm sha-256
-set security ike proposal cf_ike_prop encryption-algorithm aes-256-cbc
-set security ike proposal cf_ike_prop lifetime-seconds 86400
+set interfaces st0 unit 0 family inet address ${customerIp}/31
 
-set security ike policy cf_ike_pol mode main
-set security ike policy cf_ike_pol proposals cf_ike_prop
-set security ike policy cf_ike_pol pre-shared-key ascii-text "${p.psk}"
+# ============================================
+# Security Zones
+# ============================================
+# Cloudflare zone for tunnel interface
+set security zones security-zone cloudflare interfaces st0.0 host-inbound-traffic system-services all
+set security zones security-zone cloudflare interfaces st0.0 host-inbound-traffic protocols all
+
+# Allow IKE on external interface (adjust interface name as needed)
+set security zones security-zone untrust interfaces ge-0/0/0.0 host-inbound-traffic system-services ike
+
+# ============================================
+# IKE Proposal (Phase 1)
+# ============================================
+set security ike proposal cf_magic_wan_ike_prop authentication-method pre-shared-keys
+set security ike proposal cf_magic_wan_ike_prop dh-group group20
+set security ike proposal cf_magic_wan_ike_prop authentication-algorithm sha-256
+set security ike proposal cf_magic_wan_ike_prop encryption-algorithm aes-256-cbc
+set security ike proposal cf_magic_wan_ike_prop lifetime-seconds 86400
+
+# ============================================
+# IKE Policy
+# ============================================
+set security ike policy cf_magic_wan_${tunnelId}_pol mode main
+set security ike policy cf_magic_wan_${tunnelId}_pol proposals cf_magic_wan_ike_prop
+set security ike policy cf_magic_wan_${tunnelId}_pol pre-shared-key ascii-text "${p.psk}"
 
 # ============================================
 # IKE Gateway
 # ============================================
-set security ike gateway cf_gw ike-policy cf_ike_pol
-set security ike gateway cf_gw address ${p.cloudflareEndpoint}
-set security ike gateway cf_gw external-interface ge-0/0/0.0
-set security ike gateway cf_gw local-address ${p.customerEndpoint || "<YOUR_WAN_IP>"}
-set security ike gateway cf_gw version v2-only${p.enableNatT ? "\nset security ike gateway cf_gw nat-keepalive 10" : ""}
-${accountFqdn ? `set security ike gateway cf_gw local-identity fqdn ${accountFqdn}` : ""}
+set security ike gateway cf_magic_wan_gw_${tunnelId} ike-policy cf_magic_wan_${tunnelId}_pol
+set security ike gateway cf_magic_wan_gw_${tunnelId} address ${p.cloudflareEndpoint}
+set security ike gateway cf_magic_wan_gw_${tunnelId} local-identity hostname ${p.tunnelFqdn}
+set security ike gateway cf_magic_wan_gw_${tunnelId} external-interface ge-0/0/0.0
+set security ike gateway cf_magic_wan_gw_${tunnelId} version v2-only${p.enableNatT ? `
+set security ike gateway cf_magic_wan_gw_${tunnelId} nat-keepalive 10` : ""}
 
 # ============================================
-# IPsec Proposal
+# IPsec Proposal (Phase 2)
 # ============================================
-set security ipsec proposal cf_ipsec_prop protocol esp
-set security ipsec proposal cf_ipsec_prop authentication-algorithm hmac-sha-256-128
-set security ipsec proposal cf_ipsec_prop encryption-algorithm aes-256-cbc
-set security ipsec proposal cf_ipsec_prop lifetime-seconds 28800
-
-set security ipsec policy cf_ipsec_pol perfect-forward-secrecy keys group20
-set security ipsec policy cf_ipsec_pol proposals cf_ipsec_prop
+set security ipsec proposal cf_magic_wan_ipsec_prop protocol esp
+set security ipsec proposal cf_magic_wan_ipsec_prop authentication-algorithm hmac-sha-256-128
+set security ipsec proposal cf_magic_wan_ipsec_prop encryption-algorithm aes-256-cbc
+set security ipsec proposal cf_magic_wan_ipsec_prop lifetime-seconds 28800
 
 # ============================================
-# IPsec VPN - Disable anti-replay
+# IPsec Policy
 # ============================================
-set security ipsec vpn cf_vpn bind-interface st0.0
-set security ipsec vpn cf_vpn ike gateway cf_gw
-set security ipsec vpn cf_vpn ike no-anti-replay
-set security ipsec vpn cf_vpn ike ipsec-policy cf_ipsec_pol
-set security ipsec vpn cf_vpn establish-tunnels immediately
+set security ipsec policy cf_magic_wan_ipsec_pol proposals cf_magic_wan_ipsec_prop
 
 # ============================================
-# Tunnel Interface
+# IPsec VPN
 # ============================================
-set interfaces st0 unit 0 description "Cloudflare Magic WAN - ${p.tunnelName}"
-set interfaces st0 unit 0 family inet address ${customerIp}/31
+set security ipsec vpn cf_magic_wan_ipsec_${tunnelId} bind-interface st0.0
+set security ipsec vpn cf_magic_wan_ipsec_${tunnelId} ike gateway cf_magic_wan_gw_${tunnelId}
+set security ipsec vpn cf_magic_wan_ipsec_${tunnelId} ike no-anti-replay
+set security ipsec vpn cf_magic_wan_ipsec_${tunnelId} ike ipsec-policy cf_magic_wan_ipsec_pol
+set security ipsec vpn cf_magic_wan_ipsec_${tunnelId} establish-tunnels immediately
 
 # ============================================
-# Security Zone
+# Security Policies (adjust zones as needed)
 # ============================================
-set security zones security-zone cloudflare interfaces st0.0 host-inbound-traffic system-services all
-set security zones security-zone cloudflare interfaces st0.0 host-inbound-traffic protocols all
+set security policies from-zone cloudflare to-zone trust policy cloudflare_to_trust match source-address any
+set security policies from-zone cloudflare to-zone trust policy cloudflare_to_trust match destination-address any
+set security policies from-zone cloudflare to-zone trust policy cloudflare_to_trust match application any
+set security policies from-zone cloudflare to-zone trust policy cloudflare_to_trust then permit
+set security policies from-zone cloudflare to-zone trust policy cloudflare_to_trust then log session-close
+
+set security policies from-zone trust to-zone cloudflare policy trust_to_cloudflare match source-address any
+set security policies from-zone trust to-zone cloudflare policy trust_to_cloudflare match destination-address any
+set security policies from-zone trust to-zone cloudflare policy trust_to_cloudflare match application any
+set security policies from-zone trust to-zone cloudflare policy trust_to_cloudflare then permit
+set security policies from-zone trust to-zone cloudflare policy trust_to_cloudflare then log session-close
 `;
 }
 
