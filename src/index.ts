@@ -2198,7 +2198,7 @@ function getHtml(): string {
         <div class="card-body">
           <div class="form-group">
             <label class="form-label">Account ID</label>
-            <input type="text" class="form-input" id="accountId" placeholder="Enter your account ID">
+            <input type="text" class="form-input" id="accountId" placeholder="e.g. 1a2b3c4d5e6f7890abcdef1234567890">
           </div>
           <div class="form-group">
             <label class="form-label">API Token</label>
