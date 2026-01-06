@@ -2540,6 +2540,14 @@ function getHtml(): string {
 
     async function generateConfig() {
       const btn = document.getElementById('generateBtn');
+      const tunnelSource = document.getElementById('infoCustEndpoint').value.trim();
+
+      if (!tunnelSource) {
+        showToast('Please enter your Tunnel Source', 'error');
+        document.getElementById('infoCustEndpoint').focus();
+        return;
+      }
+
       const useAI = document.getElementById('useAI').checked;
       btn.innerHTML = useAI ? '<div class="spinner"></div> Generating with AI...' : '<div class="spinner"></div> Generating...';
       btn.disabled = true;
@@ -2549,7 +2557,7 @@ function getHtml(): string {
       formData.append('tunnelType', selectedTunnel.tunnelType);
       formData.append('tunnelName', selectedTunnel.name);
       formData.append('cloudflareEndpoint', selectedTunnel.cloudflare_endpoint);
-      formData.append('customerEndpoint', document.getElementById('infoCustEndpoint').value);
+      formData.append('customerEndpoint', tunnelSource);
       formData.append('interfaceAddress', selectedTunnel.interface_address);
       formData.append('tunnelFqdn', selectedTunnel.fqdn || '');
       formData.append('psk', document.getElementById('psk').value || '');
