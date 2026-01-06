@@ -1617,6 +1617,18 @@ function getHtml(): string {
       gap: 1rem;
     }
 
+    .form-input-inline {
+      margin-top: 0.375rem;
+      font-size: 0.8125rem;
+      padding: 0.5rem 0.75rem;
+    }
+
+    .field-hint {
+      font-size: 0.6875rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
     /* Buttons */
     .btn {
       display: inline-flex;
@@ -2287,8 +2299,9 @@ function getHtml(): string {
                   <span class="tunnel-info-value" id="infoCfEndpoint">-</span>
                 </div>
                 <div class="tunnel-info-row">
-                  <span class="tunnel-info-label">Customer Endpoint</span>
-                  <span class="tunnel-info-value" id="infoCustEndpoint">-</span>
+                  <span class="tunnel-info-label">Customer Endpoint (WAN IP)</span>
+                  <input type="text" class="form-input form-input-inline" id="infoCustEndpoint" placeholder="e.g. 203.0.113.10">
+                  <div class="field-hint">Your device's public WAN IP address (tunnel source)</div>
                 </div>
                 <div class="tunnel-info-row">
                   <span class="tunnel-info-label">Interface Address</span>
@@ -2515,7 +2528,7 @@ function getHtml(): string {
       // Update info panel
       document.getElementById('infoType').innerHTML = '<span class="tunnel-badge ' + selectedTunnel.tunnelType + '">' + selectedTunnel.tunnelType + '</span>';
       document.getElementById('infoCfEndpoint').textContent = selectedTunnel.cloudflare_endpoint;
-      document.getElementById('infoCustEndpoint').textContent = selectedTunnel.customer_endpoint;
+      document.getElementById('infoCustEndpoint').value = selectedTunnel.customer_endpoint || '';
       document.getElementById('infoInterface').textContent = selectedTunnel.interface_address;
       info.classList.add('visible');
 
@@ -2545,7 +2558,7 @@ function getHtml(): string {
       formData.append('tunnelType', selectedTunnel.tunnelType);
       formData.append('tunnelName', selectedTunnel.name);
       formData.append('cloudflareEndpoint', selectedTunnel.cloudflare_endpoint);
-      formData.append('customerEndpoint', selectedTunnel.customer_endpoint);
+      formData.append('customerEndpoint', document.getElementById('infoCustEndpoint').value);
       formData.append('interfaceAddress', selectedTunnel.interface_address);
       formData.append('tunnelFqdn', selectedTunnel.fqdn || '');
       formData.append('psk', document.getElementById('psk').value || '');
@@ -2758,7 +2771,7 @@ function getHtml(): string {
         tunnelType: selectedTunnel.tunnelType,
         tunnelName: selectedTunnel.name,
         cloudflareEndpoint: selectedTunnel.cloudflare_endpoint,
-        customerEndpoint: selectedTunnel.customer_endpoint,
+        customerEndpoint: document.getElementById('infoCustEndpoint').value,
         generatedConfig: generatedConfig || undefined
       };
 
