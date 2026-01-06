@@ -1754,6 +1754,27 @@ function getHtml(): string {
       margin-top: 0.375rem;
     }
 
+    .docs-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      font-size: 0.75rem;
+      color: var(--accent-orange);
+      text-decoration: none;
+      margin-top: 0.5rem;
+      transition: opacity 0.15s;
+    }
+
+    .docs-link:hover {
+      opacity: 0.8;
+      text-decoration: underline;
+    }
+
+    .docs-link-icon {
+      width: 0.875rem;
+      height: 0.875rem;
+    }
+
     /* PSK Field */
     .psk-field {
       display: none;
@@ -2339,6 +2360,10 @@ function getHtml(): string {
               <option value="juniper">Juniper SRX</option>
               <option value="ubiquiti">Ubiquiti / VyOS</option>
             </select>
+            <a href="https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/" target="_blank" class="docs-link">
+              <svg class="docs-link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              View official device configuration guides
+            </a>
           </div>
 
           <div class="form-group">
