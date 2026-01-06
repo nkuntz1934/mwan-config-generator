@@ -1741,6 +1741,19 @@ function getHtml(): string {
       color: var(--text-secondary);
     }
 
+    /* Tunnel Source Field */
+    .tunnel-source-field {
+      display: none;
+    }
+
+    .tunnel-source-field.visible { display: block; }
+
+    .input-hint {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.375rem;
+    }
+
     /* PSK Field */
     .psk-field {
       display: none;
@@ -2294,9 +2307,10 @@ function getHtml(): string {
             </div>
           </div>
 
-          <div class="form-group" id="tunnelSourceField" style="display: none;">
-            <label class="form-label">Tunnel Source <span style="color: var(--accent-orange);">*</span></label>
-            <input type="text" class="form-input" id="infoCustEndpoint" placeholder="WAN IP or interface (e.g. 203.0.113.10, GigabitEthernet0/0/1)">
+          <div class="form-group tunnel-source-field" id="tunnelSourceField">
+            <label class="form-label">Tunnel Source</label>
+            <input type="text" class="form-input" id="infoCustEndpoint" placeholder="e.g. 203.0.113.10 or GigabitEthernet0/0/1">
+            <div class="input-hint">Your device's WAN IP address or source interface name</div>
           </div>
 
           <div class="form-group psk-field" id="pskField">
@@ -2521,7 +2535,7 @@ function getHtml(): string {
       info.classList.add('visible');
 
       // Show tunnel source field
-      document.getElementById('tunnelSourceField').style.display = 'block';
+      document.getElementById('tunnelSourceField').classList.add('visible');
 
       // Show PSK and NAT-T fields only for IPsec
       if (selectedTunnel.tunnelType === 'ipsec') {
@@ -2624,7 +2638,7 @@ function getHtml(): string {
       document.getElementById('psk').value = '';
       document.getElementById('enableNatT').checked = false;
       document.getElementById('useAI').checked = false;
-      document.getElementById('tunnelSourceField').style.display = 'none';
+      document.getElementById('tunnelSourceField').classList.remove('visible');
 
       // Reset UI
       document.getElementById('statusDot').classList.remove('connected');
