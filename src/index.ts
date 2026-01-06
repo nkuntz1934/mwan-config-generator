@@ -1617,18 +1617,6 @@ function getHtml(): string {
       gap: 1rem;
     }
 
-    .form-input-inline {
-      margin-top: 0.375rem;
-      font-size: 0.8125rem;
-      padding: 0.5rem 0.75rem;
-    }
-
-    .field-hint {
-      font-size: 0.6875rem;
-      color: var(--text-muted);
-      margin-top: 0.25rem;
-    }
-
     /* Buttons */
     .btn {
       display: inline-flex;
@@ -2299,16 +2287,16 @@ function getHtml(): string {
                   <span class="tunnel-info-value" id="infoCfEndpoint">-</span>
                 </div>
                 <div class="tunnel-info-row">
-                  <span class="tunnel-info-label">Tunnel Source <span style="color: var(--accent-orange);">*</span></span>
-                  <input type="text" class="form-input form-input-inline" id="infoCustEndpoint" placeholder="e.g. 203.0.113.10 or GigabitEthernet0/0/1">
-                  <div class="field-hint">Your WAN IP address or interface name (used as tunnel source)</div>
-                </div>
-                <div class="tunnel-info-row">
                   <span class="tunnel-info-label">Interface Address</span>
                   <span class="tunnel-info-value" id="infoInterface">-</span>
                 </div>
               </div>
             </div>
+          </div>
+
+          <div class="form-group" id="tunnelSourceField" style="display: none;">
+            <label class="form-label">Tunnel Source <span style="color: var(--accent-orange);">*</span></label>
+            <input type="text" class="form-input" id="infoCustEndpoint" placeholder="WAN IP or interface (e.g. 203.0.113.10, GigabitEthernet0/0/1)">
           </div>
 
           <div class="form-group psk-field" id="pskField">
@@ -2532,6 +2520,9 @@ function getHtml(): string {
       document.getElementById('infoInterface').textContent = selectedTunnel.interface_address;
       info.classList.add('visible');
 
+      // Show tunnel source field
+      document.getElementById('tunnelSourceField').style.display = 'block';
+
       // Show PSK and NAT-T fields only for IPsec
       if (selectedTunnel.tunnelType === 'ipsec') {
         pskField.classList.add('visible');
@@ -2621,9 +2612,11 @@ function getHtml(): string {
       document.getElementById('accountId').value = '';
       document.getElementById('apiToken').value = '';
       document.getElementById('tunnelSelect').innerHTML = '<option value="">Choose a tunnel...</option>';
+      document.getElementById('infoCustEndpoint').value = '';
       document.getElementById('psk').value = '';
       document.getElementById('enableNatT').checked = false;
       document.getElementById('useAI').checked = false;
+      document.getElementById('tunnelSourceField').style.display = 'none';
 
       // Reset UI
       document.getElementById('statusDot').classList.remove('connected');
