@@ -836,60 +836,62 @@ interface Tunnel1
 ! Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/cisco-ios-xe/
 
 ! ============================================
-! IKEv2 Proposal - DH Group 20, AES-256, SHA256
+! IKEv2 Proposal & Policy
 ! ============================================
-crypto ikev2 proposal CF-MWAN-PROPOSAL
+crypto ikev2 proposal CF_MAGIC_WAN_PROPOSAL
  encryption aes-cbc-256
  integrity sha512 sha384 sha256
- group 20 14
+ group 20
 
-crypto ikev2 policy CF-MWAN-POLICY
- proposal CF-MWAN-PROPOSAL
+crypto ikev2 policy CF_MAGIC_WAN_POLICY
+ match fvrf any
+ proposal CF_MAGIC_WAN_PROPOSAL
 
-crypto ikev2 keyring CF-MWAN-KEYRING
- peer CLOUDFLARE
+! ============================================
+! IKEv2 Keyring
+! ============================================
+crypto ikev2 keyring CF_MAGIC_WAN_KEYRING
+ peer CF_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
   address ${p.cloudflareEndpoint}
   pre-shared-key ${p.psk}
 
-crypto ikev2 profile CF-MWAN-PROFILE
+! ============================================
+! IKEv2 Profile
+! ============================================
+crypto ikev2 profile CF_MAGIC_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
  match identity remote address ${p.cloudflareEndpoint} 255.255.255.255
- identity local fqdn ${accountFqdn}
+ identity local fqdn ${p.tunnelFqdn}
  authentication remote pre-share
  authentication local pre-share
- keyring local CF-MWAN-KEYRING
- lifetime 86400
- dpd 10 3 periodic${p.enableNatT ? "\n nat force-encap" : ""}
+ keyring local CF_MAGIC_WAN_KEYRING
+ no config-exchange request${p.enableNatT ? "\n nat force-encap" : ""}
 
 ! ============================================
-! IPsec Transform Set
+! IPsec Profile
 ! ============================================
-crypto ipsec transform-set CF-MWAN-TRANSFORM esp-aes 256 esp-sha256-hmac
- mode tunnel
-
-crypto ipsec profile CF-MWAN-IPSEC-PROFILE
- set transform-set CF-MWAN-TRANSFORM
- set ikev2-profile CF-MWAN-PROFILE
+crypto ipsec profile CF_MAGIC_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
  set security-association lifetime kilobytes disable
  set security-association replay disable
  set pfs group20
+ set ikev2-profile CF_MAGIC_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
 
 ! ============================================
-! Tunnel Interface - MTU 1450, MSS 1350
+! Tunnel Interface
 ! ============================================
 interface Tunnel1
- description Cloudflare Magic WAN - ${p.tunnelName} (${p.tunnelFqdn})
+ description Cloudflare Magic WAN - ${p.tunnelName}
  ip address ${customerIp} 255.255.255.254
- ip ospf network point-to-point
+ ip mtu 1450
+ ip tcp adjust-mss 1350
  tunnel source ${p.customerEndpoint || "<YOUR_WAN_IP>"}
  tunnel mode ipsec ipv4
  tunnel destination ${p.cloudflareEndpoint}
- tunnel protection ipsec profile CF-MWAN-IPSEC-PROFILE
  tunnel path-mtu-discovery
- ip mtu 1450
- ip tcp adjust-mss 1350
- no shutdown
+ tunnel protection ipsec profile CF_MAGIC_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
 
-! Enable IKE invalid SPI recovery
+! ============================================
+! Troubleshooting - Enable IKE invalid SPI recovery
+! ============================================
 crypto isakmp invalid-spi-recovery
 `;
 }
