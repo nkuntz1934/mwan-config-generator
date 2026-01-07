@@ -2280,10 +2280,18 @@ function getHtml(): string {
           <div class="form-group">
             <label class="form-label">Account ID</label>
             <input type="text" class="form-input" id="accountId" placeholder="e.g. 1a2b3c4d5e6f7890abcdef1234567890">
+            <a href="https://developers.cloudflare.com/fundamentals/setup/find-account-and-zone-ids/" target="_blank" class="docs-link">
+              <svg class="docs-link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Find your Account ID in the dashboard sidebar
+            </a>
           </div>
           <div class="form-group">
             <label class="form-label">API Token</label>
             <input type="password" class="form-input" id="apiToken" placeholder="API token with Magic WAN read access">
+            <a href="https://developers.cloudflare.com/fundamentals/api/get-started/create-token/" target="_blank" class="docs-link">
+              <svg class="docs-link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Create token with "Magic Transit Read" permission
+            </a>
           </div>
         </div>
         <div class="card-footer">
