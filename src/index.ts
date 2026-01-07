@@ -805,7 +805,6 @@ function getCustomerIp(cfInterfaceAddr: string): string {
 function generateCiscoIos(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
-  const accountFqdn = p.accountId ? `${p.accountId}.ipsec.cloudflare.com` : "";
 
   if (p.tunnelType === "gre") {
     return `! Cisco IOS/IOS-XE GRE Configuration for Cloudflare Magic WAN
@@ -963,7 +962,6 @@ vpn 0
 function generateFortinet(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
-  const accountFqdn = p.accountId ? `${p.accountId}.ipsec.cloudflare.com` : "";
 
   if (p.tunnelType === "gre") {
     return `# FortiGate GRE Configuration for Cloudflare Magic WAN
@@ -1026,7 +1024,7 @@ config vpn ipsec phase1-interface
         set remote-gw ${p.cloudflareEndpoint}
         set psksecret ${p.psk}
         set keylife 86400${p.enableNatT ? "\n        set nattraversal enable" : ""}
-${accountFqdn ? `        set localid "${accountFqdn}"` : ""}
+${p.tunnelFqdn ? `        set localid "${p.tunnelFqdn}"` : ""}
     next
 end
 
@@ -1064,7 +1062,6 @@ end
 function generatePaloAlto(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
-  const accountFqdn = p.accountId ? `${p.accountId}.ipsec.cloudflare.com` : "";
 
   if (p.tunnelType === "gre") {
     return `# Palo Alto GRE Configuration for Cloudflare Magic WAN
@@ -1159,7 +1156,6 @@ set zone Cloudflare_L3_Zone network layer3 tunnel.1
 function generateJuniper(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
-  const accountFqdn = p.accountId ? `${p.accountId}.ipsec.cloudflare.com` : "";
 
   if (p.tunnelType === "gre") {
     return `# Juniper SRX GRE Configuration for Cloudflare Magic WAN
