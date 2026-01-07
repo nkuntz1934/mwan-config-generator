@@ -59,6 +59,11 @@ interface TunnelFromApi {
   customer_endpoint: string;
   interface_address: string;
   description?: string;
+  remote_identities?: {
+    hex_id?: string;
+    fqdn_id?: string;
+    user_id?: string;
+  };
 }
 
 interface TunnelInfo extends TunnelFromApi {
@@ -122,7 +127,7 @@ async function handleFetchTunnels(request: Request): Promise<Response> {
       for (const t of ipsecData.result.ipsec_tunnels) {
         tunnels.push({
           ...t,
-          fqdn: `${t.id}.${accountId}.ipsec.cloudflare.com`,
+          fqdn: t.remote_identities?.fqdn_id || "",
           tunnelType: "ipsec",
         });
       }
