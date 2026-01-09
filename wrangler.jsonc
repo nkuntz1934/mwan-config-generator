@@ -3,7 +3,7 @@
   "name": "mwan-config-generator",
   "main": "src/index.ts",
   "compatibility_date": "2024-12-18",
-  "account_id": "72a61d050034cb73f26694a75073f83a",
+  // Set CLOUDFLARE_ACCOUNT_ID environment variable or wrangler will prompt
   "routes": [
     {
       "pattern": "mwan.cf-client-demo.com",

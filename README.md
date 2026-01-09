@@ -143,6 +143,9 @@ npm run dev
 ## Deployment
 
 ```bash
+# Set your Cloudflare account ID
+export CLOUDFLARE_ACCOUNT_ID="your-account-id"
+
 npm run deploy
 ```
 
