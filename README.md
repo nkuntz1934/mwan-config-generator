@@ -1,5 +1,7 @@
 # Magic WAN Configuration Generator
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A Cloudflare Worker that generates device configurations for Magic WAN IPsec and GRE tunnels. Supports both template-based and AI-powered configuration generation using Workers AI and Vectorize.
 
 **Live URL:** https://mwan.cf-client-demo.com
@@ -35,6 +37,7 @@ A daily cron job (midnight UTC) fetches the latest Cloudflare documentation page
 | Fortinet FortiGate | Yes | Yes | Phase1 interface name has 15-char limit |
 | Palo Alto Networks | Yes | Yes | Set-based CLI configuration |
 | Juniper SRX | Yes | Yes | Uses st0 secure tunnel interface |
+| pfSense | Yes | No | GUI-based configuration guide |
 | Ubiquiti / VyOS | Yes | Yes | VTI-based configuration |
 
 ## Configuration Parameters
@@ -93,7 +96,7 @@ Fetches tunnel list from Cloudflare API.
 Generates device configuration using templates.
 
 **Form data:**
-- `deviceType`: cisco-ios, cisco-sdwan, fortinet, paloalto, juniper, ubiquiti
+- `deviceType`: cisco-ios, cisco-sdwan, fortinet, paloalto, juniper, pfsense, ubiquiti
 - `tunnelType`: ipsec or gre
 - `tunnelName`: Tunnel name
 - `cloudflareEndpoint`: Cloudflare tunnel endpoint IP
@@ -182,7 +185,7 @@ Edit `wrangler.jsonc`:
 ## Requirements
 
 - Cloudflare account with Magic WAN enabled
-- API token with `Magic Transit Read` permission
+- API token with `Magic WAN Read` permission
 - Workers AI binding
 - Vectorize index (`mwan-docs`, 768 dimensions, cosine metric)
 
@@ -205,6 +208,19 @@ Edit `wrangler.jsonc`:
 - Uses st0.0 secure tunnel interface
 - Version must be `v2-only`
 
+### pfSense
+- Configure via VPN > IPsec in the web interface
+- Use **Routed (VTI)** mode for Phase 2
+- **Replay Detection must be disabled** in Advanced Configuration
+- Uses DH Group 14 (2048-bit) for compatibility
+- Uses User FQDN for local identification
+- GRE tunnels not supported in GUI (IPsec recommended)
+
+### Ubiquiti / VyOS
+- VTI-based configuration with IKEv2
+- Uses DH Group 14 (2048-bit)
+- For UniFi Cloud Gateway / Dream Machine, use the GUI instead of CLI
+
 ## Vectorize Index
 
 The `mwan-docs` index stores embedded documentation:
@@ -220,3 +236,7 @@ The `mwan-docs` index stores embedded documentation:
 - [Third-party Device Configuration](https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/)
 - [Workers AI](https://developers.cloudflare.com/workers-ai/)
 - [Vectorize](https://developers.cloudflare.com/vectorize/)
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

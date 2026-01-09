@@ -10,6 +10,7 @@ const DOC_URLS: Record<string, string> = {
   "paloalto": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/palo-alto/",
   "juniper": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/juniper/",
   "cisco-sdwan": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/viptela/",
+  "pfsense": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/pfsense/",
   "ipsec-params": "https://developers.cloudflare.com/magic-wan/reference/tunnels/",
 };
 
@@ -624,6 +625,7 @@ function getDeviceName(deviceType: string): string {
     "paloalto": "Palo Alto Networks",
     "juniper": "Juniper SRX",
     "ubiquiti": "Ubiquiti/VyOS",
+    "pfsense": "pfSense",
   };
   return names[deviceType] || deviceType;
 }
@@ -708,6 +710,11 @@ For NAT-T add: nat force-encap under crypto ikev2 profile`,
       metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
     },
     {
+      id: "pfsense-ipsec-overview",
+      text: "pfSense IPsec Configuration for Magic WAN. Use IKEv2 with AES-256-CBC and SHA-256. DH group 14 (2048-bit). Child SA PFS group 14. IKE lifetime: 28800 seconds. Child SA lifetime: 3600 seconds. IMPORTANT: Disable Replay Detection under Advanced Configuration. Use User ID (email format) for local identification. Configure via VPN > IPsec in the web interface.",
+      metadata: { deviceType: "pfsense", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    },
+    {
       id: "mwan-ipsec-params",
       text: "Magic WAN IPsec Parameters: IKE Version IKEv2 only, DH Group 20 (384-bit ECDH), Encryption AES-256-CBC or AES-256-GCM, Integrity SHA-256/384/512, IKE Lifetime 86400 seconds, IPsec Lifetime 28800 seconds, Anti-Replay MUST be disabled, PFS Group 20, MTU 1450, TCP MSS 1350.",
       metadata: { deviceType: "all", tunnelType: "ipsec", section: "parameters", source: "developers.cloudflare.com" }
@@ -779,6 +786,7 @@ function generateConfig(p: ConfigParams): string {
     "paloalto": generatePaloAlto,
     "juniper": generateJuniper,
     "ubiquiti": generateUbiquiti,
+    "pfsense": generatePfSense,
   };
 
   const generator = generators[p.deviceType];
@@ -1347,6 +1355,252 @@ set interfaces vti vti0 address ${customerIp}/31
 set interfaces vti vti0 mtu 1436
 
 # commit ; save
+`;
+}
+
+function generatePfSense(p: ConfigParams): string {
+  const customerIp = getCustomerIp(p.interfaceAddress);
+  const cloudflareIp = getCloudflareIp(p.interfaceAddress);
+  const interfaceName = `MWAN_${p.tunnelName.replace(/[^a-zA-Z0-9]/g, "_")}`;
+
+  if (p.tunnelType === "gre") {
+    return `================================================================================
+  pfSense - GRE NOT SUPPORTED
+================================================================================
+
+pfSense does not natively support GRE tunnels in the web interface.
+
+RECOMMENDATION: Use IPsec tunnel type instead (fully supported).
+
+If you must use GRE, you would need to configure it via shell commands,
+which is not recommended for most users.
+
+Please create an IPsec tunnel in the Cloudflare dashboard instead.
+`;
+  }
+
+  return `================================================================================
+  pfSense IPsec Configuration for Cloudflare Magic WAN
+================================================================================
+
+  Tunnel Name:        ${p.tunnelName}
+  Reference Docs:     https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/pfsense/
+
+================================================================================
+  QUICK REFERENCE - Copy These Values
+================================================================================
+
+  Cloudflare Endpoint:    ${p.cloudflareEndpoint}
+  Your Tunnel IP:         ${customerIp}
+  Cloudflare Tunnel IP:   ${cloudflareIp}
+  Your Identifier (FQDN): ${p.tunnelFqdn}
+  Pre-Shared Key:         ${p.psk}
+
+================================================================================
+  IMPORTANT WARNINGS
+================================================================================
+
+  [!] REPLAY DETECTION MUST BE DISABLED - Tunnel will fail without this!
+  [!] Use IKEv2 only (not IKEv1)
+  [!] Use Routed (VTI) mode for Phase 2
+
+================================================================================
+  STEP 1: Create Phase 1 (IKE)
+================================================================================
+
+  Navigate to: VPN > IPsec > Tunnels
+  Click: "+ Add P1"
+
+  GENERAL INFORMATION
+  -------------------
+  Description ............... Cloudflare Magic WAN - ${p.tunnelName}
+  Disabled .................. [ ] Leave unchecked
+  Key Exchange version ...... IKEv2
+  Internet Protocol ......... IPv4
+  Interface ................. WAN
+  Remote Gateway ............ ${p.cloudflareEndpoint}
+
+  PHASE 1 PROPOSAL (AUTHENTICATION)
+  ---------------------------------
+  Authentication Method ..... Mutual PSK
+  My identifier ............. User FQDN
+                              Value: ${p.tunnelFqdn}
+  Peer identifier ........... IP address
+                              Value: ${p.cloudflareEndpoint}
+  Pre-Shared Key ............ ${p.psk}
+
+  PHASE 1 PROPOSAL (ENCRYPTION)
+  -----------------------------
+  Algorithm ................. AES - 256 bits
+  Hash ...................... SHA256
+  DH Group .................. 14 (2048 bit)
+  Lifetime (Seconds) ........ 28800
+
+  ADVANCED OPTIONS (expand this section)
+  --------------------------------------
+  NAT Traversal ............. ${p.enableNatT ? "Force" : "Auto"}
+  Dead Peer Detection ....... [x] Enable DPD
+  Delay ..................... 10
+  Max failures .............. 5
+
+  >>> Click "Save"
+
+================================================================================
+  STEP 2: Create Phase 2 (IPsec SA)
+================================================================================
+
+  On the IPsec Tunnels page, find your new Phase 1 entry
+  Click: "Show Phase 2 Entries"
+  Click: "+ Add P2"
+
+  GENERAL INFORMATION
+  -------------------
+  Description ............... ${p.tunnelName} - Phase 2
+  Disabled .................. [ ] Leave unchecked
+  Mode ...................... Routed (VTI)   << IMPORTANT!
+  Local Network ............. Type: Address
+                              Address: ${customerIp}
+  Remote Network ............ Type: Address
+                              Address: ${cloudflareIp}
+
+  PHASE 2 PROPOSAL (SA/KEY EXCHANGE)
+  ----------------------------------
+  Protocol .................. ESP
+  Encryption Algorithms ..... [x] AES (256 bits)
+                              [ ] Uncheck all others!
+  Hash Algorithms ........... [x] SHA256
+                              [ ] Uncheck all others!
+  PFS key group ............. 14 (2048 bit)
+  Lifetime .................. 3600
+
+  ADVANCED CONFIGURATION (expand this section)
+  --------------------------------------------
+  Automatically ping host ... ${cloudflareIp}
+
+  **********************************************
+  *  CRITICAL: Replay Detection               *
+  *  [ ] MUST BE UNCHECKED / DISABLED         *
+  *  Tunnel WILL FAIL if this is enabled!     *
+  **********************************************
+
+  >>> Click "Save"
+  >>> Click "Apply Changes"
+
+================================================================================
+  STEP 3: Assign the VTI Interface
+================================================================================
+
+  Navigate to: Interfaces > Assignments
+
+  1. In the "Available network ports" dropdown, look for "ipsec..."
+     (this is your new VTI interface)
+  2. Click "+ Add" next to it
+  3. Click on the new interface name (e.g., "OPT1")
+
+  INTERFACE CONFIGURATION
+  -----------------------
+  Enable .................... [x] Enable interface
+  Description ............... ${interfaceName}
+  IPv4 Configuration Type ... Static IPv4
+  IPv4 Address .............. ${customerIp}
+  Subnet mask ............... 31
+
+  Scroll down to find:
+  MTU ....................... 1450
+  MSS ....................... 1350
+
+  >>> Click "Save"
+  >>> Click "Apply Changes"
+
+================================================================================
+  STEP 4: Verify/Create Gateway
+================================================================================
+
+  Navigate to: System > Routing > Gateways
+
+  A gateway should have been auto-created. If not, click "+ Add":
+
+  Interface ................. ${interfaceName}
+  Address Family ............ IPv4
+  Name ...................... ${interfaceName}_GW
+  Gateway ................... ${cloudflareIp}
+  Monitor IP ................ ${cloudflareIp}
+
+  >>> Click "Save"
+  >>> Click "Apply Changes"
+
+================================================================================
+  STEP 5: Create Firewall Rules
+================================================================================
+
+  Navigate to: Firewall > Rules > IPsec
+
+  Click "+ Add" to create a rule:
+
+  Action .................... Pass
+  Interface ................. IPsec
+  Protocol .................. Any
+  Source .................... Any
+  Destination ............... Any
+  Description ............... Allow Magic WAN Traffic
+
+  >>> Click "Save"
+  >>> Click "Apply Changes"
+
+  NOTE: Also add rules on your LAN interface if you need LAN traffic
+        to reach Cloudflare-protected networks.
+
+================================================================================
+  STEP 6: Connect and Verify
+================================================================================
+
+  Navigate to: Status > IPsec
+
+  1. Find your tunnel in the list
+  2. Click "Connect P1 and P2s" (play button icon)
+  3. Wait a few seconds and refresh the page
+
+  SUCCESS INDICATORS:
+  - Phase 1: "Established"
+  - Phase 2: "Established" with traffic counters
+
+  TO TEST CONNECTIVITY:
+  Navigate to: Diagnostics > Ping
+  - Hostname: ${cloudflareIp}
+  - Source Address: ${interfaceName}
+  - Click "Ping"
+
+================================================================================
+  STEP 7: Add Static Routes (Optional)
+================================================================================
+
+  If you need to route specific networks through the tunnel:
+
+  Navigate to: System > Routing > Static Routes
+  Click "+ Add"
+
+  Destination network ....... <your Cloudflare-protected network>
+  Gateway ................... ${interfaceName}_GW
+
+================================================================================
+  TROUBLESHOOTING
+================================================================================
+
+  TUNNEL WON'T ESTABLISH:
+  - Verify Pre-Shared Key is correct (copy/paste to avoid typos)
+  - Check that "My identifier" is set to User FQDN with the exact value
+  - Ensure IKEv2 is selected (not IKEv1 or Auto)
+  - Check Status > System Logs > IPsec for error messages
+
+  TUNNEL ESTABLISHED BUT NO TRAFFIC:
+  - Verify Replay Detection is DISABLED
+  - Check firewall rules on IPsec interface
+  - Verify static routes are pointing to the correct gateway
+  - Test with ping from the correct source interface
+
+  INTERMITTENT DROPS:
+  - Ensure MTU is set to 1450 and MSS to 1350
+  - Check DPD settings (10 second delay, 5 max failures)
 `;
 }
 
@@ -2367,6 +2621,7 @@ function getHtml(): string {
               <option value="fortinet">Fortinet FortiGate</option>
               <option value="paloalto">Palo Alto Networks</option>
               <option value="juniper">Juniper SRX</option>
+              <option value="pfsense">pfSense</option>
               <option value="ubiquiti">Ubiquiti / VyOS</option>
             </select>
             <a href="https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/" target="_blank" class="docs-link">
