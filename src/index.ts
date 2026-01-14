@@ -83,6 +83,7 @@ interface ConfigParams {
   psk: string;
   accountId: string;
   enableNatT: boolean;
+  stripComments: boolean;
 }
 
 async function handleFetchTunnels(request: Request): Promise<Response> {
@@ -170,9 +171,13 @@ async function handleGenerate(request: Request): Promise<Response> {
     psk: formData.get("psk") as string,
     accountId: formData.get("accountId") as string,
     enableNatT: formData.get("enableNatT") === "true",
+    stripComments: formData.get("stripComments") === "true",
   };
 
-  const config = generateConfig(params);
+  let config = generateConfig(params);
+  if (params.stripComments) {
+    config = stripConfigComments(config, params.deviceType);
+  }
 
   return new Response(JSON.stringify({ config }), {
     headers: { "Content-Type": "application/json" },
@@ -222,6 +227,56 @@ function cleanRepetitiveOutput(text: string): string {
   return cleanedLines.join("\n");
 }
 
+// Helper to strip comments and section headers from config output
+function stripConfigComments(config: string, deviceType: string): string {
+  const lines = config.split("\n");
+  const result: string[] = [];
+
+  // Determine comment character based on device type
+  // Cisco uses '!', most others use '#'
+  const isCisco = deviceType.startsWith("cisco");
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Skip empty lines at start/end, but keep one between sections
+    if (trimmed === "") {
+      // Only add blank line if previous line wasn't blank
+      if (result.length > 0 && result[result.length - 1] !== "") {
+        result.push("");
+      }
+      continue;
+    }
+
+    // Skip comment lines
+    if (isCisco && trimmed.startsWith("!")) {
+      continue;
+    }
+    if (!isCisco && trimmed.startsWith("#")) {
+      continue;
+    }
+
+    // Skip separator lines (lines that are mostly = or - characters)
+    if (/^[=\-#!]+$/.test(trimmed) || /^[=\-]{10,}/.test(trimmed)) {
+      continue;
+    }
+
+    result.push(line);
+  }
+
+  // Remove trailing blank lines
+  while (result.length > 0 && result[result.length - 1] === "") {
+    result.pop();
+  }
+
+  // Remove leading blank lines
+  while (result.length > 0 && result[0] === "") {
+    result.shift();
+  }
+
+  return result.join("\n");
+}
+
 async function handleGenerateAI(request: Request, env: Env): Promise<Response> {
   const formData = await request.formData();
 
@@ -236,6 +291,7 @@ async function handleGenerateAI(request: Request, env: Env): Promise<Response> {
     psk: formData.get("psk") as string,
     accountId: formData.get("accountId") as string,
     enableNatT: formData.get("enableNatT") === "true",
+    stripComments: formData.get("stripComments") === "true",
   };
 
   try {
@@ -313,14 +369,20 @@ Generate the ${getDeviceName(params.deviceType)} configuration:`;
       : (aiResponse as { response?: string }).response || "";
 
     // Clean up any repetitive patterns from AI output
-    const config = cleanRepetitiveOutput(rawConfig);
+    let config = cleanRepetitiveOutput(rawConfig);
+    if (params.stripComments) {
+      config = stripConfigComments(config, params.deviceType);
+    }
 
     return new Response(JSON.stringify({ config, aiGenerated: true }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error) {
     // Fallback to template-based generation
-    const config = generateConfig(params);
+    let config = generateConfig(params);
+    if (params.stripComments) {
+      config = stripConfigComments(config, params.deviceType);
+    }
     return new Response(JSON.stringify({ config, aiGenerated: false, fallback: true }), {
       headers: { "Content-Type": "application/json" },
     });
@@ -1234,8 +1296,8 @@ set security ike gateway cf_magic_wan_gw_${tunnelId} ike-policy cf_magic_wan_${t
 set security ike gateway cf_magic_wan_gw_${tunnelId} address ${p.cloudflareEndpoint}
 set security ike gateway cf_magic_wan_gw_${tunnelId} local-identity hostname ${p.tunnelFqdn}
 set security ike gateway cf_magic_wan_gw_${tunnelId} external-interface ge-0/0/0.0
-set security ike gateway cf_magic_wan_gw_${tunnelId} version v2-only${p.enableNatT ? `
-set security ike gateway cf_magic_wan_gw_${tunnelId} nat-keepalive 10` : ""}
+set security ike gateway cf_magic_wan_gw_${tunnelId} version v2-only
+# NAT-T is enabled by default on SRX and will auto-detect NAT
 
 # ============================================
 # IPsec Proposal (Phase 2)
@@ -1656,7 +1718,7 @@ function getHtml(): string {
     .header {
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border-default);
-      padding: 1rem 2rem;
+      padding: 0.5rem 1.5rem;
       position: sticky;
       top: 0;
       z-index: 100;
@@ -1720,13 +1782,12 @@ function getHtml(): string {
 
     /* Main Layout */
     .main {
-      max-width: 1200px;
+      max-width: 1400px;
       margin: 0 auto;
-      padding: 2rem;
+      padding: 1rem 1.5rem;
       display: grid;
-      grid-template-columns: 380px 1fr;
-      gap: 2rem;
-      min-height: calc(100vh - 65px);
+      grid-template-columns: 320px 1fr;
+      gap: 1rem;
     }
 
     @media (max-width: 1024px) {
@@ -1740,7 +1801,7 @@ function getHtml(): string {
     .sidebar {
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
+      gap: 0.75rem;
     }
 
     /* Cards */
@@ -1752,7 +1813,7 @@ function getHtml(): string {
     }
 
     .card-header {
-      padding: 1rem 1.25rem;
+      padding: 0.625rem 0.875rem;
       border-bottom: 1px solid var(--border-default);
       display: flex;
       align-items: center;
@@ -1760,23 +1821,23 @@ function getHtml(): string {
     }
 
     .card-title {
-      font-size: 0.875rem;
+      font-size: 0.8125rem;
       font-weight: 600;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.375rem;
     }
 
     .card-title-icon {
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
       color: var(--text-secondary);
     }
 
-    .card-body { padding: 1.25rem; }
+    .card-body { padding: 0.875rem; }
 
     .card-footer {
-      padding: 1rem 1.25rem;
+      padding: 0.625rem 0.875rem;
       background: var(--bg-tertiary);
       border-top: 1px solid var(--border-default);
     }
@@ -1816,25 +1877,25 @@ function getHtml(): string {
     }
 
     /* Form Elements */
-    .form-group { margin-bottom: 1rem; }
+    .form-group { margin-bottom: 0.625rem; }
     .form-group:last-child { margin-bottom: 0; }
 
     .form-label {
       display: block;
-      font-size: 0.8125rem;
+      font-size: 0.75rem;
       font-weight: 500;
       color: var(--text-secondary);
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.25rem;
     }
 
     .form-input {
       width: 100%;
-      padding: 0.625rem 0.875rem;
+      padding: 0.4rem 0.625rem;
       background: var(--bg-primary);
       border: 1px solid var(--border-default);
       border-radius: var(--radius-md);
       color: var(--text-primary);
-      font-size: 0.875rem;
+      font-size: 0.8125rem;
       font-family: inherit;
       transition: border-color 0.15s, box-shadow 0.15s;
     }
@@ -1877,12 +1938,12 @@ function getHtml(): string {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 0.5rem;
-      padding: 0.625rem 1rem;
+      gap: 0.375rem;
+      padding: 0.4rem 0.75rem;
       border: 1px solid transparent;
       border-radius: var(--radius-md);
       font-family: inherit;
-      font-size: 0.875rem;
+      font-size: 0.8125rem;
       font-weight: 500;
       cursor: pointer;
       transition: all 0.15s;
@@ -1967,11 +2028,11 @@ function getHtml(): string {
 
     /* Tunnel Info Panel */
     .tunnel-info {
-      margin-top: 0.75rem;
-      padding: 0.875rem;
+      margin-top: 0.5rem;
+      padding: 0.5rem;
       background: var(--bg-tertiary);
       border-radius: var(--radius-md);
-      font-size: 0.8125rem;
+      font-size: 0.75rem;
       display: none;
     }
 
@@ -1979,7 +2040,7 @@ function getHtml(): string {
 
     .tunnel-info-grid {
       display: grid;
-      gap: 0.5rem;
+      gap: 0.25rem;
     }
 
     .tunnel-info-row {
@@ -1988,11 +2049,11 @@ function getHtml(): string {
       align-items: center;
     }
 
-    .tunnel-info-label { color: var(--text-muted); }
+    .tunnel-info-label { color: var(--text-muted); font-size: 0.6875rem; }
 
     .tunnel-info-value {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.75rem;
+      font-size: 0.6875rem;
       color: var(--text-secondary);
     }
 
@@ -2004,19 +2065,19 @@ function getHtml(): string {
     .tunnel-source-field.visible { display: block; }
 
     .input-hint {
-      font-size: 0.75rem;
+      font-size: 0.6875rem;
       color: var(--text-muted);
-      margin-top: 0.375rem;
+      margin-top: 0.25rem;
     }
 
     .docs-link {
       display: inline-flex;
       align-items: center;
-      gap: 0.375rem;
-      font-size: 0.75rem;
+      gap: 0.25rem;
+      font-size: 0.6875rem;
       color: var(--accent-orange);
       text-decoration: none;
-      margin-top: 0.5rem;
+      margin-top: 0.375rem;
       transition: opacity 0.15s;
     }
 
@@ -2097,16 +2158,16 @@ function getHtml(): string {
     }
 
     .checkbox-text {
-      font-size: 0.875rem;
+      font-size: 0.8125rem;
       font-weight: 500;
       color: var(--text-primary);
     }
 
     .checkbox-hint {
-      font-size: 0.75rem;
+      font-size: 0.6875rem;
       color: var(--text-muted);
-      margin-top: 0.375rem;
-      padding-left: 1.625rem;
+      margin-top: 0.125rem;
+      padding-left: 1.5rem;
     }
 
     /* Output Panel */
@@ -2116,11 +2177,11 @@ function getHtml(): string {
       border-radius: var(--radius-lg);
       display: flex;
       flex-direction: column;
-      min-height: 400px;
+      min-height: 300px;
     }
 
     .output-header {
-      padding: 1rem 1.25rem;
+      padding: 0.625rem 0.875rem;
       border-bottom: 1px solid var(--border-default);
       display: flex;
       align-items: center;
@@ -2129,7 +2190,7 @@ function getHtml(): string {
     }
 
     .output-title {
-      font-size: 0.875rem;
+      font-size: 0.8125rem;
       font-weight: 600;
       display: flex;
       align-items: center;
@@ -2153,7 +2214,7 @@ function getHtml(): string {
     .output-body {
       flex: 1;
       overflow: auto;
-      padding: 1.25rem;
+      padding: 0.875rem;
     }
 
     .output-placeholder {
@@ -2164,30 +2225,31 @@ function getHtml(): string {
       justify-content: center;
       color: var(--text-muted);
       text-align: center;
-      padding: 2rem;
+      padding: 1rem;
     }
 
     .output-placeholder-icon {
-      width: 48px;
-      height: 48px;
+      width: 36px;
+      height: 36px;
       color: var(--border-default);
-      margin-bottom: 1rem;
+      margin-bottom: 0.5rem;
     }
 
     .output-placeholder-title {
       font-weight: 500;
+      font-size: 0.8125rem;
       color: var(--text-secondary);
-      margin-bottom: 0.25rem;
+      margin-bottom: 0.125rem;
     }
 
     .output-placeholder-text {
-      font-size: 0.875rem;
+      font-size: 0.75rem;
     }
 
     .code-block {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.8125rem;
-      line-height: 1.6;
+      font-size: 0.75rem;
+      line-height: 1.5;
       white-space: pre;
       color: var(--text-secondary);
       display: none;
@@ -2236,7 +2298,7 @@ function getHtml(): string {
     .divider {
       height: 1px;
       background: var(--border-default);
-      margin: 1rem 0;
+      margin: 0.5rem 0;
     }
 
     /* Collapsed state */
@@ -2602,20 +2664,11 @@ function getHtml(): string {
             <input type="password" class="form-input" id="psk" placeholder="Enter tunnel PSK">
           </div>
 
-          <div class="form-group nat-t-field" id="natTField">
-            <label class="checkbox-label">
-              <input type="checkbox" id="enableNatT" class="checkbox-input">
-              <span class="checkbox-box"></span>
-              <span class="checkbox-text">Enable NAT-T</span>
-            </label>
-            <div class="checkbox-hint">Enable if device is behind NAT/CGNAT (uses UDP port 4500)</div>
-          </div>
-
           <div class="divider"></div>
 
           <div class="form-group">
             <label class="form-label">Target Device</label>
-            <select class="form-input" id="deviceType">
+            <select class="form-input" id="deviceType" onchange="onDeviceChange()">
               <option value="cisco-ios">Cisco IOS / IOS-XE</option>
               <option value="cisco-sdwan">Cisco SD-WAN (Viptela)</option>
               <option value="fortinet">Fortinet FortiGate</option>
@@ -2628,6 +2681,24 @@ function getHtml(): string {
               <svg class="docs-link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               View official device configuration guides
             </a>
+          </div>
+
+          <div class="form-group nat-t-field" id="natTField">
+            <label class="checkbox-label">
+              <input type="checkbox" id="enableNatT" class="checkbox-input">
+              <span class="checkbox-box"></span>
+              <span class="checkbox-text">Enable NAT-T</span>
+            </label>
+            <div class="checkbox-hint">Enable if device is behind NAT/CGNAT (uses UDP port 4500)</div>
+          </div>
+
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="stripComments" class="checkbox-input">
+              <span class="checkbox-box"></span>
+              <span class="checkbox-text">Strip Comments</span>
+            </label>
+            <div class="checkbox-hint">Remove comment lines and section headers from output</div>
           </div>
 
           <div class="form-group">
@@ -2798,6 +2869,26 @@ function getHtml(): string {
       }
     }
 
+    // Devices that support explicit NAT-T configuration
+    // Excluded: Juniper (NAT-T enabled by default, auto-detects NAT)
+    const devicesWithNatT = ['cisco-ios', 'cisco-sdwan', 'fortinet', 'paloalto', 'pfsense', 'ubiquiti'];
+
+    function updateNatTVisibility() {
+      const natTField = document.getElementById('natTField');
+      const deviceType = document.getElementById('deviceType').value;
+
+      // Show NAT-T only for IPsec tunnels AND devices that support it
+      if (selectedTunnel && selectedTunnel.tunnelType === 'ipsec' && devicesWithNatT.includes(deviceType)) {
+        natTField.classList.add('visible');
+      } else {
+        natTField.classList.remove('visible');
+      }
+    }
+
+    function onDeviceChange() {
+      updateNatTVisibility();
+    }
+
     function onTunnelSelect() {
       const idx = document.getElementById('tunnelSelect').value;
       const info = document.getElementById('tunnelInfo');
@@ -2826,19 +2917,20 @@ function getHtml(): string {
       // Show tunnel source field
       document.getElementById('tunnelSourceField').classList.add('visible');
 
-      // Show PSK and NAT-T fields only for IPsec
+      // Show PSK field only for IPsec
       if (selectedTunnel.tunnelType === 'ipsec') {
         pskField.classList.add('visible');
-        natTField.classList.add('visible');
         generateBtn.disabled = true; // Will enable when PSK entered
         document.getElementById('psk').oninput = function() {
           generateBtn.disabled = !this.value.trim();
         };
       } else {
         pskField.classList.remove('visible');
-        natTField.classList.remove('visible');
         generateBtn.disabled = false;
       }
+
+      // Update NAT-T visibility based on tunnel type and device
+      updateNatTVisibility();
     }
 
     async function generateConfig() {
@@ -2866,6 +2958,7 @@ function getHtml(): string {
       formData.append('psk', document.getElementById('psk').value || '');
       formData.append('accountId', accountId);
       formData.append('enableNatT', document.getElementById('enableNatT').checked ? 'true' : 'false');
+      formData.append('stripComments', document.getElementById('stripComments').checked ? 'true' : 'false');
 
       try {
         const endpoint = useAI ? '/generate-ai' : '/generate';
