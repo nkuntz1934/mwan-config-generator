@@ -768,7 +768,7 @@ For NAT-T add: nat force-encap under crypto ikev2 profile`,
     },
     {
       id: "ubiquiti-ipsec-overview",
-      text: "Ubiquiti EdgeRouter / VyOS IPsec Configuration for Magic WAN. Use IKEv2 with AES-256 and SHA-256. DH group 20. IKE lifetime: 86400 seconds. ESP lifetime: 28800 seconds. For NAT-T, use force-udp-encapsulation on the site-to-site peer.",
+      text: "Ubiquiti EdgeRouter / VyOS IPsec Configuration for Magic WAN. Requires EdgeOS 2.0+ (1.x has critical strongSwan bug). Use IKEv2 with AES-256, SHA-256 for IKE and SHA1 for ESP (EdgeOS limitation). DH group 14. IKE lifetime: 28800 seconds. ESP lifetime: 28800 seconds. Set authentication id to your public IP when behind NAT. Enable nat-traversal globally.",
       metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
     },
     {
@@ -1369,9 +1369,16 @@ set interfaces tunnel tun0 mtu 1476
 # FQDN: ${p.tunnelFqdn}
 # Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/ubiquiti/
 #
+# IMPORTANT: EdgeOS 2.0+ required! EdgeOS 1.x has a strongSwan bug where
+#            inbound IPsec SAs are not installed, causing tunnel to fail.
+#            Check version with: show version
+#
 # NOTE: For UniFi Cloud Gateway / Dream Machine, use the GUI under:
 #       Settings > VPN > Site-to-Site VPN
 #       The settings below are for EdgeRouter / VyOS CLI.
+#
+# PSK NOTE: Pre-shared key cannot contain '=' or '/' characters.
+#           Use Cloudflare-generated PSK or: openssl rand -hex 32
 
 # ============================================
 # IKE Group (Phase 1) - IKEv2, AES-256, SHA-256, DH14
@@ -1386,10 +1393,11 @@ set vpn ipsec ike-group CF-MWAN-IKE dead-peer-detection interval 30
 set vpn ipsec ike-group CF-MWAN-IKE dead-peer-detection timeout 120
 
 # ============================================
-# ESP Group (Phase 2) - AES-256, SHA-256, PFS DH14
+# ESP Group (Phase 2) - AES-256, SHA1, PFS DH14
+# NOTE: EdgeOS only supports md5 or sha1 for ESP hash (not sha256)
 # ============================================
 set vpn ipsec esp-group CF-MWAN-ESP proposal 1 encryption aes256
-set vpn ipsec esp-group CF-MWAN-ESP proposal 1 hash sha256
+set vpn ipsec esp-group CF-MWAN-ESP proposal 1 hash sha1
 set vpn ipsec esp-group CF-MWAN-ESP lifetime 28800
 set vpn ipsec esp-group CF-MWAN-ESP pfs dh-group14
 set vpn ipsec esp-group CF-MWAN-ESP mode tunnel
@@ -1399,15 +1407,18 @@ set vpn ipsec esp-group CF-MWAN-ESP mode tunnel
 # ============================================
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} description "Cloudflare Magic WAN - ${p.tunnelName}"
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication mode pre-shared-secret
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication pre-shared-secret "${p.psk}"
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication remote-id ${p.cloudflareEndpoint}
+set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication pre-shared-secret '${p.psk}'
+set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication id ${p.customerEndpoint || "<YOUR-PUBLIC-IP>"}
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} ike-group CF-MWAN-IKE
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} local-address ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
+set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} local-address ${p.customerEndpoint || "<ROUTER-WAN-IP>"}
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti bind vti0
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti esp-group CF-MWAN-ESP${p.enableNatT ? `
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} force-udp-encapsulation` : ""}
+set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti esp-group CF-MWAN-ESP
 
+# ============================================
+# Global IPsec Settings
+# ============================================
 set vpn ipsec ipsec-interfaces interface eth0
+set vpn ipsec nat-traversal enable
 
 # ============================================
 # VTI Interface - MTU 1436
@@ -1416,7 +1427,19 @@ set interfaces vti vti0 description "Cloudflare Magic WAN - ${p.tunnelName}"
 set interfaces vti vti0 address ${customerIp}/31
 set interfaces vti vti0 mtu 1436
 
-# commit ; save
+# ============================================
+# Apply Configuration
+# ============================================
+# commit
+# save
+#
+# Bring up tunnel:
+# sudo ipsec restart
+# sudo ipsec up peer-${p.cloudflareEndpoint}-tunnel-vti
+#
+# Verify:
+# show vpn ipsec sa
+# sudo ip -s xfrm state   # Must show TWO entries (inbound + outbound)
 `;
 }
 
