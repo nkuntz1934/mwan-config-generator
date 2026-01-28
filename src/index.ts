@@ -1776,7 +1776,7 @@ function generatePfSenseXml(p: ConfigParams): string {
       <remote-gateway>${p.cloudflareEndpoint}</remote-gateway>
       <protocol>inet</protocol>
       <myid_type>user_fqdn</myid_type>
-      <myid_data>${p.tunnelFqdn}</myid_data>
+      <myid_data>${p.tunnelFqdn.startsWith('ipsec@') ? p.tunnelFqdn : 'ipsec@' + p.tunnelFqdn}</myid_data>
       <peerid_type>address</peerid_type>
       <peerid_data>${p.cloudflareEndpoint}</peerid_data>
       <encryption>
@@ -1787,10 +1787,10 @@ function generatePfSenseXml(p: ConfigParams): string {
           </encryption-algorithm>
           <hash-algorithm>sha256</hash-algorithm>
           <prf-algorithm>sha256</prf-algorithm>
-          <dhgroup>14</dhgroup>
+          <dhgroup>20</dhgroup>
         </item>
       </encryption>
-      <lifetime>28800</lifetime>
+      <lifetime>86400</lifetime>
       <rekey_time></rekey_time>
       <reauth_time></reauth_time>
       <rand_time></rand_time>
@@ -1828,8 +1828,8 @@ function generatePfSenseXml(p: ConfigParams): string {
         <keylen>256</keylen>
       </encryption-algorithm-option>
       <hash-algorithm-option>hmac_sha256</hash-algorithm-option>
-      <pfsgroup>14</pfsgroup>
-      <lifetime>3600</lifetime>
+      <pfsgroup>20</pfsgroup>
+      <lifetime>28800</lifetime>
       <rekey_time></rekey_time>
       <rand_time></rand_time>
       <pinghost>${cloudflareIp}</pinghost>
@@ -1899,7 +1899,7 @@ function generatePfSenseXml(p: ConfigParams): string {
     <cloudflare_endpoint>${p.cloudflareEndpoint}</cloudflare_endpoint>
     <your_tunnel_ip>${customerIp}</your_tunnel_ip>
     <cloudflare_tunnel_ip>${cloudflareIp}</cloudflare_tunnel_ip>
-    <tunnel_fqdn>${p.tunnelFqdn}</tunnel_fqdn>
+    <user_id>${p.tunnelFqdn.startsWith('ipsec@') ? p.tunnelFqdn : 'ipsec@' + p.tunnelFqdn}</user_id>
   </reference>
 </pfsense_ipsec_config>
 `;
