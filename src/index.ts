@@ -26,6 +26,10 @@ export default {
       return handleGenerate(request);
     }
 
+    if (request.method === "POST" && url.pathname === "/generate-pfsense-xml") {
+      return handleGeneratePfSenseXml(request);
+    }
+
     if (request.method === "POST" && url.pathname === "/generate-ai") {
       return handleGenerateAI(request, env);
     }
@@ -181,6 +185,34 @@ async function handleGenerate(request: Request): Promise<Response> {
 
   return new Response(JSON.stringify({ config }), {
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function handleGeneratePfSenseXml(request: Request): Promise<Response> {
+  const formData = await request.formData();
+
+  const params: ConfigParams = {
+    deviceType: "pfsense",
+    tunnelType: formData.get("tunnelType") as string,
+    tunnelName: formData.get("tunnelName") as string,
+    cloudflareEndpoint: formData.get("cloudflareEndpoint") as string,
+    customerEndpoint: formData.get("customerEndpoint") as string,
+    interfaceAddress: formData.get("interfaceAddress") as string,
+    tunnelFqdn: formData.get("tunnelFqdn") as string,
+    psk: formData.get("psk") as string,
+    accountId: formData.get("accountId") as string,
+    enableNatT: formData.get("enableNatT") === "true",
+    stripComments: false,
+  };
+
+  const xml = generatePfSenseXml(params);
+  const filename = `pfsense-cloudflare-${params.tunnelName.replace(/[^a-zA-Z0-9]/g, "-")}.xml`;
+
+  return new Response(xml, {
+    headers: {
+      "Content-Type": "application/xml",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    },
   });
 }
 
@@ -1444,25 +1476,33 @@ set interfaces vti vti0 mtu 1436
 }
 
 function generatePfSense(p: ConfigParams): string {
+  if (p.tunnelType === "gre") {
+    return `<?xml version="1.0"?>
+<!--
+  pfSense - GRE NOT SUPPORTED
+
+  pfSense does not natively support GRE tunnels in the web interface.
+
+  RECOMMENDATION: Use IPsec tunnel type instead (fully supported).
+
+  If you must use GRE, you would need to configure it via shell commands,
+  which is not recommended for most users.
+
+  Please create an IPsec tunnel in the Cloudflare dashboard instead.
+-->
+<error>GRE tunnels are not supported in pfSense. Please create an IPsec tunnel.</error>
+`;
+  }
+
+  // For IPsec tunnels, return the XML config directly
+  return generatePfSenseXml(p);
+}
+
+// Legacy text-based pfSense instructions (kept for reference)
+function generatePfSenseText(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
   const interfaceName = `MWAN_${p.tunnelName.replace(/[^a-zA-Z0-9]/g, "_")}`;
-
-  if (p.tunnelType === "gre") {
-    return `================================================================================
-  pfSense - GRE NOT SUPPORTED
-================================================================================
-
-pfSense does not natively support GRE tunnels in the web interface.
-
-RECOMMENDATION: Use IPsec tunnel type instead (fully supported).
-
-If you must use GRE, you would need to configure it via shell commands,
-which is not recommended for most users.
-
-Please create an IPsec tunnel in the Cloudflare dashboard instead.
-`;
-  }
 
   return `================================================================================
   pfSense IPsec Configuration for Cloudflare Magic WAN
@@ -1687,6 +1727,192 @@ Please create an IPsec tunnel in the Cloudflare dashboard instead.
   - Ensure MTU is set to 1450 and MSS to 1350
   - Check DPD settings (10 second delay, 5 max failures)
 `;
+}
+
+// ============================================
+// pfSense XML Configuration Generator
+// Generates importable XML config for pfSense IPsec
+// ============================================
+function generatePfSenseXml(p: ConfigParams): string {
+  const customerIp = getCustomerIp(p.interfaceAddress);
+  const cloudflareIp = getCloudflareIp(p.interfaceAddress);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const uniqueId = Math.random().toString(16).substr(2, 13);
+  const description = `Cloudflare Magic WAN - ${p.tunnelName}`;
+  const interfaceName = `MWAN_${p.tunnelName.replace(/[^a-zA-Z0-9]/g, "_")}`;
+
+  if (p.tunnelType === "gre") {
+    return `<?xml version="1.0"?>
+<!-- pfSense does not support GRE tunnels via web interface -->
+<!-- Please use IPsec tunnel type instead -->
+<error>GRE tunnels are not supported in pfSense. Please create an IPsec tunnel.</error>
+`;
+  }
+
+  return `<?xml version="1.0"?>
+<!--
+  pfSense IPsec Configuration for Cloudflare Magic WAN
+  Tunnel: ${p.tunnelName}
+  Generated: ${new Date().toISOString()}
+
+  INSTRUCTIONS:
+  1. Navigate to VPN > IPsec in pfSense
+  2. Create Phase 1 and Phase 2 entries using the values below
+  3. Alternatively, you can edit your config.xml backup:
+     - Download backup from Diagnostics > Backup & Restore
+     - Add these sections inside the <ipsec> element
+     - Restore the modified config
+
+  IMPORTANT:
+  - Disable Replay Detection in Phase 2 Advanced settings
+  - Use VTI (Routed) mode for Phase 2
+-->
+<pfsense_ipsec_config>
+  <ipsec>
+    <phase1>
+      <ikeid>1</ikeid>
+      <iketype>ikev2</iketype>
+      <interface>wan</interface>
+      <remote-gateway>${p.cloudflareEndpoint}</remote-gateway>
+      <protocol>inet</protocol>
+      <myid_type>user_fqdn</myid_type>
+      <myid_data>${p.tunnelFqdn}</myid_data>
+      <peerid_type>address</peerid_type>
+      <peerid_data>${p.cloudflareEndpoint}</peerid_data>
+      <encryption>
+        <item>
+          <encryption-algorithm>
+            <name>aes</name>
+            <keylen>256</keylen>
+          </encryption-algorithm>
+          <hash-algorithm>sha256</hash-algorithm>
+          <prf-algorithm>sha256</prf-algorithm>
+          <dhgroup>14</dhgroup>
+        </item>
+      </encryption>
+      <lifetime>28800</lifetime>
+      <rekey_time></rekey_time>
+      <reauth_time></reauth_time>
+      <rand_time></rand_time>
+      <pre-shared-key>${escapeXml(p.psk)}</pre-shared-key>
+      <private-key></private-key>
+      <certref></certref>
+      <pkcs11certref></pkcs11certref>
+      <pkcs11pin></pkcs11pin>
+      <caref></caref>
+      <authentication_method>pre_shared_key</authentication_method>
+      <descr><![CDATA[${description}]]></descr>
+      <nat_traversal>${p.enableNatT ? "on" : "auto"}</nat_traversal>
+      <mobike>off</mobike>
+      <startaction>start</startaction>
+      <closeaction>start</closeaction>
+      <dpd_delay>10</dpd_delay>
+      <dpd_maxfail>5</dpd_maxfail>
+    </phase1>
+    <phase2>
+      <ikeid>1</ikeid>
+      <uniqid>${uniqueId}</uniqid>
+      <mode>vti</mode>
+      <reqid>1</reqid>
+      <localid>
+        <type>address</type>
+        <address>${customerIp}</address>
+      </localid>
+      <remoteid>
+        <type>address</type>
+        <address>${cloudflareIp}</address>
+      </remoteid>
+      <protocol>esp</protocol>
+      <encryption-algorithm-option>
+        <name>aes</name>
+        <keylen>256</keylen>
+      </encryption-algorithm-option>
+      <hash-algorithm-option>hmac_sha256</hash-algorithm-option>
+      <pfsgroup>14</pfsgroup>
+      <lifetime>3600</lifetime>
+      <rekey_time></rekey_time>
+      <rand_time></rand_time>
+      <pinghost>${cloudflareIp}</pinghost>
+      <keepalive>enabled</keepalive>
+      <descr><![CDATA[${p.tunnelName} - Phase 2 VTI]]></descr>
+    </phase2>
+  </ipsec>
+
+  <!--
+    VTI Interface Assignment (after IPsec is configured):
+    Navigate to Interfaces > Assignments
+    Add the new ipsec interface that appears
+    Configure with:
+      - Enable: checked
+      - Description: ${interfaceName}
+      - IPv4 Configuration: None (VTI gets IP from Phase 2)
+      - MTU: 1450
+      - MSS: 1350
+  -->
+  <interface_assignment>
+    <descr><![CDATA[${interfaceName}]]></descr>
+    <if>ipsec1</if>
+    <mtu>1450</mtu>
+    <mss>1350</mss>
+  </interface_assignment>
+
+  <!--
+    Recommended Firewall Rules:
+    Create on the IPsec interface (or assigned VTI interface)
+  -->
+  <firewall_rules>
+    <rule>
+      <type>pass</type>
+      <interface>enc0</interface>
+      <ipprotocol>inet</ipprotocol>
+      <protocol>icmp</protocol>
+      <icmptype>any</icmptype>
+      <source><any></any></source>
+      <destination><any></any></destination>
+      <descr><![CDATA[Allow Cloudflare health checks (ICMP)]]></descr>
+    </rule>
+    <rule>
+      <type>pass</type>
+      <interface>enc0</interface>
+      <ipprotocol>inet</ipprotocol>
+      <source><any></any></source>
+      <destination><any></any></destination>
+      <descr><![CDATA[Allow all traffic on Magic WAN tunnel]]></descr>
+    </rule>
+  </firewall_rules>
+
+  <!--
+    Gateway Configuration:
+    A gateway should be auto-created when you assign the VTI interface
+    If not, create manually with:
+  -->
+  <gateway>
+    <interface>${interfaceName}</interface>
+    <gateway>${cloudflareIp}</gateway>
+    <name>${interfaceName}_GW</name>
+    <ipprotocol>inet</ipprotocol>
+    <monitor>${cloudflareIp}</monitor>
+  </gateway>
+
+  <!-- Quick Reference Values -->
+  <reference>
+    <cloudflare_endpoint>${p.cloudflareEndpoint}</cloudflare_endpoint>
+    <your_tunnel_ip>${customerIp}</your_tunnel_ip>
+    <cloudflare_tunnel_ip>${cloudflareIp}</cloudflare_tunnel_ip>
+    <tunnel_fqdn>${p.tunnelFqdn}</tunnel_fqdn>
+  </reference>
+</pfsense_ipsec_config>
+`;
+}
+
+// Helper to escape XML special characters
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 // ============================================
@@ -2771,6 +2997,10 @@ function getHtml(): string {
           </div>
           <div class="output-meta">
             <span class="output-device" id="outputDevice" style="display: none;">-</span>
+            <button class="btn btn-secondary" id="downloadXmlBtn" onclick="downloadPfSenseXml()" style="display: none; width: auto;">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download XML
+            </button>
             <button class="btn btn-secondary" id="copyBtn" onclick="copyConfig()" style="display: none; width: auto;">
               <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               Copy
@@ -2997,14 +3227,23 @@ function getHtml(): string {
         // Store generated config for troubleshooting context
         generatedConfig = data.config;
 
-        // Show device badge and copy button
+        // Show device badge and buttons
         const deviceSelect = document.getElementById('deviceType');
+        const deviceType = deviceSelect.value;
         let deviceLabel = deviceSelect.options[deviceSelect.selectedIndex].text;
         if (data.aiGenerated) deviceLabel += ' (AI)';
         if (data.fallback) deviceLabel += ' (Fallback)';
         document.getElementById('outputDevice').textContent = deviceLabel;
         document.getElementById('outputDevice').style.display = 'block';
         document.getElementById('copyBtn').style.display = 'flex';
+
+        // Show Download XML button only for pfSense IPsec tunnels
+        const downloadXmlBtn = document.getElementById('downloadXmlBtn');
+        if (deviceType === 'pfsense' && selectedTunnel.tunnelType === 'ipsec') {
+          downloadXmlBtn.style.display = 'flex';
+        } else {
+          downloadXmlBtn.style.display = 'none';
+        }
 
         const msg = data.aiGenerated ? 'AI-generated configuration ready' : (data.fallback ? 'Generated (AI fallback to template)' : 'Configuration generated');
         showToast(msg, 'success');
@@ -3027,6 +3266,72 @@ function getHtml(): string {
       const config = document.getElementById('codeBlock').textContent;
       navigator.clipboard.writeText(config);
       showToast('Copied to clipboard', 'success');
+    }
+
+    async function downloadPfSenseXml() {
+      if (!selectedTunnel) {
+        showToast('No tunnel selected', 'error');
+        return;
+      }
+
+      const tunnelSource = document.getElementById('infoCustEndpoint').value.trim();
+      if (!tunnelSource) {
+        showToast('Please enter your Tunnel Source (WAN IP or interface) before downloading', 'error');
+        document.getElementById('infoCustEndpoint').focus();
+        return;
+      }
+
+      const psk = document.getElementById('psk').value.trim();
+      if (!psk) {
+        showToast('Please enter the Pre-Shared Key before downloading', 'error');
+        document.getElementById('psk').focus();
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('tunnelType', selectedTunnel.tunnelType);
+      formData.append('tunnelName', selectedTunnel.name);
+      formData.append('cloudflareEndpoint', selectedTunnel.cloudflare_endpoint);
+      formData.append('customerEndpoint', tunnelSource);
+      formData.append('interfaceAddress', selectedTunnel.interface_address);
+      formData.append('tunnelFqdn', selectedTunnel.fqdn);
+      formData.append('psk', psk);
+      formData.append('accountId', accountId);
+      formData.append('enableNatT', document.getElementById('enableNatT').checked.toString());
+
+      try {
+        const response = await fetch('/generate-pfsense-xml', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to generate XML');
+        }
+
+        // Get the filename from the Content-Disposition header or use a default
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'pfsense-cloudflare-config.xml';
+        if (contentDisposition) {
+          const match = contentDisposition.match(/filename="(.+)"/);
+          if (match) filename = match[1];
+        }
+
+        // Create blob and download
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+
+        showToast('pfSense XML configuration downloaded', 'success');
+      } catch (e) {
+        showToast('Failed to download XML configuration', 'error');
+      }
     }
 
     function disconnect() {
@@ -3077,6 +3382,7 @@ function getHtml(): string {
       document.getElementById('codeBlock').textContent = '';
       document.getElementById('outputDevice').style.display = 'none';
       document.getElementById('copyBtn').style.display = 'none';
+      document.getElementById('downloadXmlBtn').style.display = 'none';
 
       // Reset troubleshoot chat and disable tab
       disableTroubleshootTab();
