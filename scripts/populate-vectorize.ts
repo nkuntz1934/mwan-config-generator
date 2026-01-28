@@ -9,6 +9,11 @@ interface Env {
   VECTORIZE: VectorizeIndex;
 }
 
+// Workers AI embedding response type (runtime shape differs from @cloudflare/workers-types)
+interface EmbeddingResponse {
+  data: number[][];
+}
+
 interface DocChunk {
   id: string;
   text: string;
@@ -26,7 +31,12 @@ const DOC_CHUNKS: DocChunk[] = [
   {
     id: "cisco-ios-ipsec-overview",
     text: `Cisco IOS-XE IPsec Configuration for Magic WAN. Use IKEv2 with DH group 20 (384-bit ECDH). Encryption should be AES-256-CBC or AES-256-GCM. Integrity algorithms: SHA-256, SHA-384, or SHA-512. IKE lifetime: 86400 seconds (24 hours). IPsec lifetime: 28800 seconds (8 hours). Anti-replay must be disabled. MTU: 1450, TCP MSS: 1350.`,
-    metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "cisco-ios",
+      tunnelType: "ipsec",
+      section: "overview",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "cisco-ios-ipsec-proposal",
@@ -37,7 +47,12 @@ crypto ikev2 proposal CF-MWAN-PROPOSAL
   group 20 14
 
 The proposal defines encryption (aes-cbc-256), integrity algorithms (sha512, sha384, sha256), and DH groups (20 primary, 14 fallback). Group 20 is 384-bit ECDH.`,
-    metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "ikev2-proposal", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "cisco-ios",
+      tunnelType: "ipsec",
+      section: "ikev2-proposal",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "cisco-ios-ipsec-profile",
@@ -53,7 +68,12 @@ crypto ikev2 profile CF-MWAN-PROFILE
   nat force-encap
 
 For NAT-T, add 'nat force-encap' to force UDP encapsulation on port 4500. Use local identity as FQDN format: <account_id>.ipsec.cloudflare.com`,
-    metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "ikev2-profile", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "cisco-ios",
+      tunnelType: "ipsec",
+      section: "ikev2-profile",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "cisco-ios-ipsec-transform",
@@ -69,7 +89,12 @@ crypto ipsec profile CF-MWAN-IPSEC-PROFILE
   set pfs group20
 
 Anti-replay must be disabled. PFS uses group20. Kilobyte-based lifetime should be disabled.`,
-    metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "transform-set", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "cisco-ios",
+      tunnelType: "ipsec",
+      section: "transform-set",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "cisco-ios-ipsec-tunnel",
@@ -89,7 +114,12 @@ interface Tunnel1
 crypto isakmp invalid-spi-recovery
 
 MTU 1450 and MSS 1350 are required. Enable path-mtu-discovery. Enable invalid-spi-recovery.`,
-    metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "tunnel-interface", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "cisco-ios",
+      tunnelType: "ipsec",
+      section: "tunnel-interface",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "cisco-ios-gre-tunnel",
@@ -106,14 +136,24 @@ interface Tunnel1
   no shutdown
 
 For GRE tunnels, MTU is 1476 and MSS is 1436. Keepalives should be 10 seconds with 3 retries.`,
-    metadata: { deviceType: "cisco-ios", tunnelType: "gre", section: "tunnel-interface", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "cisco-ios",
+      tunnelType: "gre",
+      section: "tunnel-interface",
+      source: "developers.cloudflare.com",
+    },
   },
 
   // Cisco SD-WAN (Viptela)
   {
     id: "cisco-sdwan-ipsec-overview",
     text: `Cisco SD-WAN (Viptela) IPsec Configuration for Magic WAN. IPsec is only supported on Cisco 8000v in router mode. Use IKEv2 with cipher-suite aes256-cbc-sha256 and group 20. IKE rekey 86400 seconds, IPsec rekey 28800 seconds. Replay window must be 0 (disabled). For NAT-T, add 'nat-t enable' in the IKE section.`,
-    metadata: { deviceType: "cisco-sdwan", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "cisco-sdwan",
+      tunnelType: "ipsec",
+      section: "overview",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "cisco-sdwan-ipsec-config",
@@ -141,7 +181,12 @@ vpn 0
     mtu 1450
     tcp-mss-adjust 1350
     no shutdown`,
-    metadata: { deviceType: "cisco-sdwan", tunnelType: "ipsec", section: "interface-config", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "cisco-sdwan",
+      tunnelType: "ipsec",
+      section: "interface-config",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "cisco-sdwan-gre-config",
@@ -157,14 +202,24 @@ vpn 0
     no shutdown
 
 GRE tunnels use MTU 1476 and MSS 1436.`,
-    metadata: { deviceType: "cisco-sdwan", tunnelType: "gre", section: "interface-config", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "cisco-sdwan",
+      tunnelType: "gre",
+      section: "interface-config",
+      source: "developers.cloudflare.com",
+    },
   },
 
   // Fortinet FortiGate
   {
     id: "fortinet-ipsec-overview",
     text: `Fortinet FortiGate IPsec Configuration for Magic WAN. CRITICAL: Must enable asymmetric routing and set IKE port to 4500. Use IKEv2 with AES-256-GCM and DH group 20. Phase 1 keylife: 86400 seconds. Phase 2 must disable replay. Local ID format: <account_id>.ipsec.cloudflare.com. For NAT-T, set nattraversal enable in phase1-interface.`,
-    metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "fortinet",
+      tunnelType: "ipsec",
+      section: "overview",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "fortinet-global-settings",
@@ -178,7 +233,12 @@ config system global
 end
 
 These settings are MANDATORY. asymroute-icmp must be enabled. IKE port must be 4500.`,
-    metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "global-settings", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "fortinet",
+      tunnelType: "ipsec",
+      section: "global-settings",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "fortinet-phase1",
@@ -200,7 +260,12 @@ config vpn ipsec phase1-interface
 end
 
 Use AES-256-GCM proposals. DH group 20. Key lifetime 86400 seconds. Set localid to account FQDN.`,
-    metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "phase1", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "fortinet",
+      tunnelType: "ipsec",
+      section: "phase1",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "fortinet-phase2",
@@ -217,7 +282,12 @@ config vpn ipsec phase2-interface
 end
 
 CRITICAL: replay must be set to disable. PFS uses DH group 20.`,
-    metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "phase2", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "fortinet",
+      tunnelType: "ipsec",
+      section: "phase2",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "fortinet-gre",
@@ -240,14 +310,24 @@ config system interface
 end
 
 GRE tunnels use MTU 1476.`,
-    metadata: { deviceType: "fortinet", tunnelType: "gre", section: "gre-config", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "fortinet",
+      tunnelType: "gre",
+      section: "gre-config",
+      source: "developers.cloudflare.com",
+    },
   },
 
   // Palo Alto Networks
   {
     id: "paloalto-ipsec-overview",
     text: `Palo Alto Networks IPsec Configuration for Magic WAN. Use IKEv2 with DH group 20 and AES-256-CBC encryption. IKE lifetime: 24 hours. IPsec lifetime: 8 hours. Anti-replay must be disabled. For NAT-T, configure nat-traversal enable on the IKE gateway. Local identity uses FQDN format: <account_id>.ipsec.cloudflare.com`,
-    metadata: { deviceType: "paloalto", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "paloalto",
+      tunnelType: "ipsec",
+      section: "overview",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "paloalto-ike-crypto",
@@ -258,7 +338,12 @@ set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto encryption aes
 set network ike crypto-profiles ike-crypto-profiles CF_IKE_Crypto lifetime hours 24
 
 Use SHA-512/384/256 for hash. DH group 20. AES-256-CBC encryption. 24 hour lifetime.`,
-    metadata: { deviceType: "paloalto", tunnelType: "ipsec", section: "ike-crypto", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "paloalto",
+      tunnelType: "ipsec",
+      section: "ike-crypto",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "paloalto-ipsec-crypto",
@@ -269,7 +354,12 @@ set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto dh-group g
 set network ike crypto-profiles ipsec-crypto-profiles CF_IPsec_Crypto lifetime hours 8
 
 ESP authentication SHA-256. ESP encryption AES-256-CBC. PFS group 20. 8 hour lifetime.`,
-    metadata: { deviceType: "paloalto", tunnelType: "ipsec", section: "ipsec-crypto", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "paloalto",
+      tunnelType: "ipsec",
+      section: "ipsec-crypto",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "paloalto-ike-gateway",
@@ -285,7 +375,12 @@ set network ike gateway CF_MWAN_GW peer-address ip <cloudflare_endpoint>
 set network ike gateway CF_MWAN_GW local-id type fqdn id <account_id>.ipsec.cloudflare.com
 
 Enable DPD. Use IKEv2 only. Configure NAT-T. Set local-id as FQDN.`,
-    metadata: { deviceType: "paloalto", tunnelType: "ipsec", section: "ike-gateway", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "paloalto",
+      tunnelType: "ipsec",
+      section: "ike-gateway",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "paloalto-tunnel-ipsec",
@@ -304,7 +399,12 @@ set network tunnel ipsec CF_MWAN_IPsec anti-replay no
 set zone Cloudflare network layer3 tunnel.1
 
 MTU 1450. CRITICAL: anti-replay must be no.`,
-    metadata: { deviceType: "paloalto", tunnelType: "ipsec", section: "tunnel-config", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "paloalto",
+      tunnelType: "ipsec",
+      section: "tunnel-config",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "paloalto-gre",
@@ -314,14 +414,24 @@ set network interface tunnel units tunnel.1 mtu 1476
 set zone Cloudflare network layer3 tunnel.1
 
 GRE on Palo Alto uses tunnel interface with MTU 1476. Native GRE support varies by PAN-OS version.`,
-    metadata: { deviceType: "paloalto", tunnelType: "gre", section: "gre-config", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "paloalto",
+      tunnelType: "gre",
+      section: "gre-config",
+      source: "developers.cloudflare.com",
+    },
   },
 
   // Juniper SRX
   {
     id: "juniper-ipsec-overview",
     text: `Juniper SRX IPsec Configuration for Magic WAN. Use IKEv2 only (version v2-only). DH group 20 with AES-256-CBC. IKE lifetime: 86400 seconds. IPsec lifetime: 28800 seconds. Anti-replay must be disabled (no-anti-replay). For NAT-T, set nat-keepalive 10 on the IKE gateway.`,
-    metadata: { deviceType: "juniper", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "juniper",
+      tunnelType: "ipsec",
+      section: "overview",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "juniper-ike-proposal",
@@ -337,7 +447,12 @@ set security ike policy cf_ike_pol proposals cf_ike_prop
 set security ike policy cf_ike_pol pre-shared-key ascii-text "<psk>"
 
 DH group 20, SHA-256 auth, AES-256-CBC encryption, 86400 second lifetime.`,
-    metadata: { deviceType: "juniper", tunnelType: "ipsec", section: "ike-proposal", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "juniper",
+      tunnelType: "ipsec",
+      section: "ike-proposal",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "juniper-ike-gateway",
@@ -351,7 +466,12 @@ set security ike gateway cf_gw nat-keepalive 10
 set security ike gateway cf_gw local-identity fqdn <account_id>.ipsec.cloudflare.com
 
 Use v2-only for IKEv2. nat-keepalive 10 for NAT traversal. Set local-identity as FQDN.`,
-    metadata: { deviceType: "juniper", tunnelType: "ipsec", section: "ike-gateway", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "juniper",
+      tunnelType: "ipsec",
+      section: "ike-gateway",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "juniper-ipsec-proposal",
@@ -365,7 +485,12 @@ set security ipsec policy cf_ipsec_pol perfect-forward-secrecy keys group20
 set security ipsec policy cf_ipsec_pol proposals cf_ipsec_prop
 
 ESP with HMAC-SHA-256-128, AES-256-CBC, 28800 second lifetime, PFS group 20.`,
-    metadata: { deviceType: "juniper", tunnelType: "ipsec", section: "ipsec-proposal", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "juniper",
+      tunnelType: "ipsec",
+      section: "ipsec-proposal",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "juniper-vpn-tunnel",
@@ -383,7 +508,12 @@ set security zones security-zone cloudflare interfaces st0.0 host-inbound-traffi
 set security zones security-zone cloudflare interfaces st0.0 host-inbound-traffic protocols all
 
 CRITICAL: no-anti-replay must be set. Use st0 interface.`,
-    metadata: { deviceType: "juniper", tunnelType: "ipsec", section: "vpn-tunnel", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "juniper",
+      tunnelType: "ipsec",
+      section: "vpn-tunnel",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "juniper-gre",
@@ -398,14 +528,24 @@ set security zones security-zone cloudflare interfaces gr-0/0/0.0 host-inbound-t
 set security zones security-zone cloudflare interfaces gr-0/0/0.0 host-inbound-traffic protocols all
 
 GRE uses gr-0/0/0 interface with MTU 1476.`,
-    metadata: { deviceType: "juniper", tunnelType: "gre", section: "gre-config", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "juniper",
+      tunnelType: "gre",
+      section: "gre-config",
+      source: "developers.cloudflare.com",
+    },
   },
 
   // Ubiquiti / VyOS
   {
     id: "ubiquiti-ipsec-overview",
     text: `Ubiquiti EdgeRouter / VyOS IPsec Configuration for Magic WAN. Use IKEv2 with AES-256 and SHA-256. DH group 20. IKE lifetime: 86400 seconds. ESP lifetime: 28800 seconds. DPD with 30 second interval. For NAT-T, use force-udp-encapsulation on the site-to-site peer.`,
-    metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "ubiquiti",
+      tunnelType: "ipsec",
+      section: "overview",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "ubiquiti-ike-group",
@@ -420,7 +560,12 @@ set vpn ipsec ike-group CF-IKE dead-peer-detection interval 30
 set vpn ipsec ike-group CF-IKE dead-peer-detection timeout 120
 
 AES-256, SHA-256, DH group 20, 86400 lifetime, IKEv2. DPD with restart action.`,
-    metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "ike-group", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "ubiquiti",
+      tunnelType: "ipsec",
+      section: "ike-group",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "ubiquiti-esp-group",
@@ -432,7 +577,12 @@ set vpn ipsec esp-group CF-ESP pfs dh-group20
 set vpn ipsec esp-group CF-ESP mode tunnel
 
 AES-256, SHA-256, 28800 lifetime, PFS with DH group 20, tunnel mode.`,
-    metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "esp-group", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "ubiquiti",
+      tunnelType: "ipsec",
+      section: "esp-group",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "ubiquiti-peer",
@@ -449,7 +599,12 @@ set vpn ipsec site-to-site peer <cloudflare_endpoint> force-udp-encapsulation
 set vpn ipsec ipsec-interfaces interface eth0
 
 Use VTI (vti0). For NAT-T, add force-udp-encapsulation.`,
-    metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "peer-config", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "ubiquiti",
+      tunnelType: "ipsec",
+      section: "peer-config",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "ubiquiti-vti",
@@ -459,7 +614,12 @@ set interfaces vti vti0 address <customer_ip>/31
 set interfaces vti vti0 mtu 1450
 
 VTI interface with /31 addressing and MTU 1450.`,
-    metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "vti-interface", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "ubiquiti",
+      tunnelType: "ipsec",
+      section: "vti-interface",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "ubiquiti-gre",
@@ -472,7 +632,12 @@ set interfaces tunnel tun0 address <customer_ip>/31
 set interfaces tunnel tun0 mtu 1476
 
 GRE uses tunnel interface with encapsulation gre and MTU 1476.`,
-    metadata: { deviceType: "ubiquiti", tunnelType: "gre", section: "gre-config", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "ubiquiti",
+      tunnelType: "gre",
+      section: "gre-config",
+      source: "developers.cloudflare.com",
+    },
   },
 
   // General IPsec parameters
@@ -490,7 +655,12 @@ GRE uses tunnel interface with encapsulation gre and MTU 1476.`,
 - MTU: 1450
 - TCP MSS: 1350
 - NAT-T: Use UDP port 4500 when behind NAT`,
-    metadata: { deviceType: "all", tunnelType: "ipsec", section: "parameters", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "all",
+      tunnelType: "ipsec",
+      section: "parameters",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "mwan-gre-params",
@@ -501,7 +671,12 @@ GRE uses tunnel interface with encapsulation gre and MTU 1476.`,
 - Tunnel mode: GRE over IP
 
 GRE tunnels are simpler but don't provide encryption. Use IPsec for encrypted connectivity.`,
-    metadata: { deviceType: "all", tunnelType: "gre", section: "parameters", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "all",
+      tunnelType: "gre",
+      section: "parameters",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "mwan-identity",
@@ -510,7 +685,12 @@ GRE tunnels are simpler but don't provide encryption. Use IPsec for encrypted co
 - Identity Type: FQDN
 - The account ID is your Cloudflare account ID
 - For tunnel-specific identity: <tunnel_id>.<account_id>.ipsec.cloudflare.com`,
-    metadata: { deviceType: "all", tunnelType: "ipsec", section: "identity", source: "developers.cloudflare.com" }
+    metadata: {
+      deviceType: "all",
+      tunnelType: "ipsec",
+      section: "identity",
+      source: "developers.cloudflare.com",
+    },
   },
   {
     id: "mwan-anti-replay",
@@ -523,12 +703,17 @@ Device-specific settings:
 - Palo Alto: set anti-replay no
 - Juniper: set no-anti-replay
 - Viptela: replay-window 0`,
-    metadata: { deviceType: "all", tunnelType: "ipsec", section: "anti-replay", source: "developers.cloudflare.com" }
-  }
+    metadata: {
+      deviceType: "all",
+      tunnelType: "ipsec",
+      section: "anti-replay",
+      source: "developers.cloudflare.com",
+    },
+  },
 ];
 
 export default {
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
     await populateIndex(env);
   },
 
@@ -560,9 +745,9 @@ async function populateIndex(env: Env): Promise<{ success: boolean; inserted: nu
 
   // Generate embeddings for each chunk
   for (const chunk of DOC_CHUNKS) {
-    const embedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+    const embedding = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
       text: chunk.text,
-    });
+    })) as EmbeddingResponse;
 
     if (embedding.data && embedding.data[0]) {
       vectors.push({

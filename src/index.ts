@@ -1,21 +1,58 @@
 interface Env {
   AI: Ai;
   VECTORIZE: VectorizeIndex;
+  ADMIN_SECRET?: string; // Optional secret for admin endpoints
+}
+
+// Security: Check if request is authorized for admin endpoints
+function isAuthorizedAdmin(request: Request, env: Env): boolean {
+  // If no secret is configured, allow access (for backwards compatibility during setup)
+  if (!env.ADMIN_SECRET) {
+    return true;
+  }
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader) {
+    return false;
+  }
+  // Support both "Bearer <token>" and raw token formats
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+  return token === env.ADMIN_SECRET;
+}
+
+function unauthorizedResponse(): Response {
+  return new Response(JSON.stringify({ error: "Unauthorized" }), {
+    status: 401,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+// Workers AI embedding response type (runtime shape differs from @cloudflare/workers-types)
+interface EmbeddingResponse {
+  data: number[][];
 }
 
 // Cloudflare docs URLs for each device type
 const DOC_URLS: Record<string, string> = {
-  "cisco-ios": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/cisco-ios-xe/",
-  "fortinet": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/fortinet/",
-  "paloalto": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/palo-alto/",
-  "juniper": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/juniper/",
-  "cisco-sdwan": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/viptela/",
-  "pfsense": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/pfsense/",
+  "cisco-ios":
+    "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/cisco-ios-xe/",
+  fortinet:
+    "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/fortinet/",
+  paloalto:
+    "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/palo-alto/",
+  juniper:
+    "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/juniper/",
+  "cisco-sdwan":
+    "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/viptela/",
+  pfsense:
+    "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/pfsense/",
   "ipsec-params": "https://developers.cloudflare.com/magic-wan/reference/tunnels/",
 };
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  // Note: No CORS headers are set, which means API endpoints can only be called from
+  // same-origin (the web UI). This is secure by default. If cross-origin access is
+  // needed in the future, add appropriate Access-Control-* headers to responses.
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "POST" && url.pathname === "/api/tunnels") {
@@ -31,11 +68,22 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/populate") {
+      if (!isAuthorizedAdmin(request, env)) {
+        return unauthorizedResponse();
+      }
       return handlePopulate(env);
     }
 
     if (request.method === "POST" && url.pathname === "/refresh-docs") {
-      return handleRefreshDocs(env);
+      if (!isAuthorizedAdmin(request, env)) {
+        return unauthorizedResponse();
+      }
+      // Use waitUntil to ensure background refresh completes even after response is sent
+      ctx.waitUntil(refreshDocsFromCloudflare(env));
+      return new Response(
+        JSON.stringify({ success: true, message: "Documentation refresh started" }),
+        { headers: { "Content-Type": "application/json" } }
+      );
     }
 
     if (request.method === "POST" && url.pathname === "/troubleshoot") {
@@ -87,7 +135,7 @@ interface ConfigParams {
 }
 
 async function handleFetchTunnels(request: Request): Promise<Response> {
-  const body = await request.json() as { accountId: string; apiToken: string };
+  const body = (await request.json()) as { accountId: string; apiToken: string };
   const { accountId, apiToken } = body;
 
   if (!accountId || !apiToken) {
@@ -105,21 +153,36 @@ async function handleFetchTunnels(request: Request): Promise<Response> {
   try {
     // Fetch both IPsec and GRE tunnels in parallel
     const [ipsecRes, greRes] = await Promise.all([
-      fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/magic/ipsec_tunnels`, { headers }),
-      fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/magic/gre_tunnels`, { headers }),
+      fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/magic/ipsec_tunnels`, {
+        headers,
+      }),
+      fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/magic/gre_tunnels`, {
+        headers,
+      }),
     ]);
 
     const [ipsecData, greData] = await Promise.all([
-      ipsecRes.json() as Promise<{ success: boolean; result: { ipsec_tunnels: TunnelFromApi[] }; errors?: Array<{ message: string }> }>,
-      greRes.json() as Promise<{ success: boolean; result: { gre_tunnels: TunnelFromApi[] }; errors?: Array<{ message: string }> }>,
+      ipsecRes.json() as Promise<{
+        success: boolean;
+        result: { ipsec_tunnels: TunnelFromApi[] };
+        errors?: Array<{ message: string }>;
+      }>,
+      greRes.json() as Promise<{
+        success: boolean;
+        result: { gre_tunnels: TunnelFromApi[] };
+        errors?: Array<{ message: string }>;
+      }>,
     ]);
 
     // Check for auth errors (both will fail if token is bad)
     if (!ipsecData.success && !greData.success) {
-      return new Response(JSON.stringify({ error: ipsecData.errors?.[0]?.message || "API error" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: ipsecData.errors?.[0]?.message || "API error" }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
     }
 
     const tunnels: TunnelInfo[] = [];
@@ -149,7 +212,7 @@ async function handleFetchTunnels(request: Request): Promise<Response> {
     return new Response(JSON.stringify({ tunnels, accountId }), {
       headers: { "Content-Type": "application/json" },
     });
-  } catch (error) {
+  } catch (_error) {
     return new Response(JSON.stringify({ error: "Failed to fetch tunnels" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
@@ -195,7 +258,12 @@ function cleanRepetitiveOutput(text: string): string {
   for (const line of lines) {
     const trimmed = line.trim();
     // Allow some repeated lines (empty, comments) but limit them
-    if (trimmed === lastLine && trimmed !== "" && !trimmed.startsWith("#") && !trimmed.startsWith("!")) {
+    if (
+      trimmed === lastLine &&
+      trimmed !== "" &&
+      !trimmed.startsWith("#") &&
+      !trimmed.startsWith("!")
+    ) {
       consecutiveRepeats++;
       if (consecutiveRepeats > 2) {
         continue; // Skip after 2 consecutive repeats
@@ -208,8 +276,8 @@ function cleanRepetitiveOutput(text: string): string {
     const normalized = trimmed.toLowerCase().replace(/\s+/g, " ");
     if (normalized.length > 20 && seenLines.has(normalized)) {
       // Check if we're in a loop (same meaningful line seen before)
-      const occurrences = cleanedLines.filter(l =>
-        l.trim().toLowerCase().replace(/\s+/g, " ") === normalized
+      const occurrences = cleanedLines.filter(
+        (l) => l.trim().toLowerCase().replace(/\s+/g, " ") === normalized
       ).length;
       if (occurrences >= 2) {
         continue; // Skip if we've seen this line twice already
@@ -257,7 +325,7 @@ function stripConfigComments(config: string, deviceType: string): string {
     }
 
     // Skip separator lines (lines that are mostly = or - characters)
-    if (/^[=\-#!]+$/.test(trimmed) || /^[=\-]{10,}/.test(trimmed)) {
+    if (/^[=#!-]+$/.test(trimmed) || /^[=-]{10,}/.test(trimmed)) {
       continue;
     }
 
@@ -298,9 +366,9 @@ async function handleGenerateAI(request: Request, env: Env): Promise<Response> {
     // Generate embedding for the query
     const queryText = `${getDeviceName(params.deviceType)} ${params.tunnelType} configuration for Magic WAN tunnel ${params.enableNatT ? "with NAT-T enabled" : ""}`;
 
-    const queryEmbedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+    const queryEmbedding = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
       text: queryText,
-    });
+    })) as EmbeddingResponse;
 
     if (!queryEmbedding.data || !queryEmbedding.data[0]) {
       throw new Error("Failed to generate query embedding");
@@ -341,9 +409,13 @@ TUNNEL PARAMETERS:
 - Cloudflare Endpoint: ${params.cloudflareEndpoint}
 - Customer WAN IP: ${params.customerEndpoint || "YOUR_WAN_IP"}
 - Customer Tunnel IP: ${customerIp}
-${params.tunnelType === "ipsec" ? `- Pre-Shared Key: ${params.psk}
+${
+  params.tunnelType === "ipsec"
+    ? `- Pre-Shared Key: ${params.psk}
 - Account FQDN: ${params.accountId}.ipsec.cloudflare.com
-- NAT-T Enabled: ${params.enableNatT}` : ""}
+- NAT-T Enabled: ${params.enableNatT}`
+    : ""
+}
 
 REFERENCE DOCUMENTATION (USE THIS EXACTLY):
 ${context}
@@ -364,9 +436,10 @@ Generate the ${getDeviceName(params.deviceType)} configuration:`;
       temperature: 0.1,
     });
 
-    const rawConfig = typeof aiResponse === "string"
-      ? aiResponse
-      : (aiResponse as { response?: string }).response || "";
+    const rawConfig =
+      typeof aiResponse === "string"
+        ? aiResponse
+        : (aiResponse as { response?: string }).response || "";
 
     // Clean up any repetitive patterns from AI output
     let config = cleanRepetitiveOutput(rawConfig);
@@ -377,7 +450,7 @@ Generate the ${getDeviceName(params.deviceType)} configuration:`;
     return new Response(JSON.stringify({ config, aiGenerated: true }), {
       headers: { "Content-Type": "application/json" },
     });
-  } catch (error) {
+  } catch (_error) {
     // Fallback to template-based generation
     let config = generateConfig(params);
     if (params.stripComments) {
@@ -394,9 +467,9 @@ async function handlePopulate(env: Env): Promise<Response> {
   const vectors: VectorizeVector[] = [];
 
   for (const chunk of DOC_CHUNKS) {
-    const embedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+    const embedding = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
       text: chunk.text,
-    });
+    })) as EmbeddingResponse;
 
     if (embedding.data && embedding.data[0]) {
       vectors.push({
@@ -422,21 +495,9 @@ async function handlePopulate(env: Env): Promise<Response> {
   });
 }
 
-async function handleRefreshDocs(env: Env): Promise<Response> {
-  try {
-    const result = await refreshDocsFromCloudflare(env);
-    return new Response(JSON.stringify(result), {
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: String(error) }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-}
-
-async function refreshDocsFromCloudflare(env: Env): Promise<{ success: boolean; updated: number; sources: string[] }> {
+async function refreshDocsFromCloudflare(
+  env: Env
+): Promise<{ success: boolean; updated: number; sources: string[] }> {
   const vectors: VectorizeVector[] = [];
   const sources: string[] = [];
 
@@ -446,7 +507,7 @@ async function refreshDocsFromCloudflare(env: Env): Promise<{ success: boolean; 
       const response = await fetch(url, {
         headers: {
           "User-Agent": "Cloudflare-Worker-MWAN-Config-Generator/1.0",
-          "Accept": "text/html",
+          Accept: "text/html",
         },
       });
 
@@ -466,14 +527,15 @@ async function refreshDocsFromCloudflare(env: Env): Promise<{ success: boolean; 
       }
 
       // Generate embedding
-      const embedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+      const embedding = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
         text: docContent,
-      });
+      })) as EmbeddingResponse;
 
       if (embedding.data && embedding.data[0]) {
         const tunnelType = "ipsec"; // All doc pages are IPsec-focused
         // Truncate text to fit Vectorize 10KB metadata limit
-        const truncatedText = docContent.length > 8000 ? docContent.substring(0, 8000) + "\n[TRUNCATED]" : docContent;
+        const truncatedText =
+          docContent.length > 8000 ? docContent.substring(0, 8000) + "\n[TRUNCATED]" : docContent;
         vectors.push({
           id: `live-${deviceType}-config`,
           values: embedding.data[0],
@@ -523,7 +585,7 @@ interface TroubleshootRequest {
 
 async function handleTroubleshoot(request: Request, env: Env): Promise<Response> {
   try {
-    const body = await request.json() as TroubleshootRequest;
+    const body = (await request.json()) as TroubleshootRequest;
     const { message, context, history } = body;
 
     if (!message || !context) {
@@ -536,9 +598,9 @@ async function handleTroubleshoot(request: Request, env: Env): Promise<Response>
     // Build query for Vectorize to find relevant troubleshooting docs
     const queryText = `troubleshooting ${context.deviceType} ${context.tunnelType} Magic WAN tunnel ${message}`;
 
-    const queryEmbedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+    const queryEmbedding = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
       text: queryText,
-    });
+    })) as EmbeddingResponse;
 
     if (!queryEmbedding.data || !queryEmbedding.data[0]) {
       throw new Error("Failed to generate query embedding");
@@ -604,22 +666,27 @@ Provide a helpful, concise troubleshooting response:`;
       temperature: 0.3,
     });
 
-    const response = typeof aiResponse === "string"
-      ? aiResponse
-      : (aiResponse as { response?: string }).response || "";
+    const response =
+      typeof aiResponse === "string"
+        ? aiResponse
+        : (aiResponse as { response?: string }).response || "";
 
     return new Response(JSON.stringify({ response }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("Troubleshoot error:", error);
-    return new Response(JSON.stringify({
-      error: "Failed to process troubleshooting request",
-      response: "I'm sorry, I encountered an error processing your request. Please try again or rephrase your question."
-    }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        error: "Failed to process troubleshooting request",
+        response:
+          "I'm sorry, I encountered an error processing your request. Please try again or rephrase your question.",
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 }
 
@@ -667,9 +734,9 @@ function extractDocContent(html: string, deviceType: string): string | null {
   // Build context with device type prefix
   const deviceNames: Record<string, string> = {
     "cisco-ios": "Cisco IOS-XE",
-    "fortinet": "Fortinet FortiGate",
-    "paloalto": "Palo Alto Networks",
-    "juniper": "Juniper SRX",
+    fortinet: "Fortinet FortiGate",
+    paloalto: "Palo Alto Networks",
+    juniper: "Juniper SRX",
     "cisco-sdwan": "Cisco SD-WAN Viptela",
     "ipsec-params": "Magic WAN IPsec Parameters",
   };
@@ -683,11 +750,11 @@ function getDeviceName(deviceType: string): string {
   const names: Record<string, string> = {
     "cisco-ios": "Cisco IOS/IOS-XE",
     "cisco-sdwan": "Cisco SD-WAN (Viptela)",
-    "fortinet": "Fortinet FortiGate",
-    "paloalto": "Palo Alto Networks",
-    "juniper": "Juniper SRX",
-    "ubiquiti": "Ubiquiti/VyOS",
-    "pfsense": "pfSense",
+    fortinet: "Fortinet FortiGate",
+    paloalto: "Palo Alto Networks",
+    juniper: "Juniper SRX",
+    ubiquiti: "Ubiquiti/VyOS",
+    pfsense: "pfSense",
   };
   return names[deviceType] || deviceType;
 }
@@ -744,98 +811,193 @@ interface Tunnel1
  tunnel path-mtu-discovery
  tunnel protection ipsec profile CF_IPSEC_PROFILE
 For NAT-T add: nat force-encap under crypto ikev2 profile`,
-      metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "full-config", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "cisco-ios",
+        tunnelType: "ipsec",
+        section: "full-config",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "fortinet-ipsec-overview",
       text: "Fortinet FortiGate IPsec Configuration for Magic WAN. CRITICAL: Must enable asymmetric routing (set asymroute-icmp enable). Use IKEv2 with AES-256-GCM and DH group 20. Phase 1 keylife: 86400 seconds. Phase 2 must disable replay. Phase1 interface name has 15-character limit. For NAT-T, set nattraversal enable and set ike-port 4500 (WARNING: ike-port is a global setting affecting all tunnels).",
-      metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "fortinet",
+        tunnelType: "ipsec",
+        section: "overview",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "paloalto-ipsec-overview",
       text: "Palo Alto Networks IPsec Configuration for Magic WAN. Use IKEv2 with DH group 20 and AES-256-CBC encryption. IKE lifetime: 24 hours. IPsec lifetime: 8 hours. Anti-replay must be disabled (set anti-replay no). For NAT-T, configure nat-traversal enable on the IKE gateway.",
-      metadata: { deviceType: "paloalto", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "paloalto",
+        tunnelType: "ipsec",
+        section: "overview",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "juniper-ipsec-overview",
       text: "Juniper SRX IPsec Configuration for Magic WAN. Use IKEv2 only (version v2-only). DH group 20 with AES-256-CBC. IKE lifetime: 86400 seconds. IPsec lifetime: 28800 seconds. Anti-replay must be disabled (no-anti-replay). For NAT-T, set nat-keepalive 10 on the IKE gateway.",
-      metadata: { deviceType: "juniper", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "juniper",
+        tunnelType: "ipsec",
+        section: "overview",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "cisco-sdwan-ipsec-overview",
       text: "Cisco SD-WAN (Viptela) IPsec Configuration for Magic WAN. IPsec is only supported on Cisco 8000v in router mode. Use IKEv2 with cipher-suite aes256-cbc-sha256 and group 20. IKE rekey 86400, IPsec rekey 28800. Replay window must be 0 (disabled). For NAT-T, add 'nat-t enable' in the IKE section.",
-      metadata: { deviceType: "cisco-sdwan", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "cisco-sdwan",
+        tunnelType: "ipsec",
+        section: "overview",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "ubiquiti-ipsec-overview",
       text: "Ubiquiti EdgeRouter / VyOS IPsec Configuration for Magic WAN. Use IKEv2 with AES-256 and SHA-256. DH group 20. IKE lifetime: 86400 seconds. ESP lifetime: 28800 seconds. For NAT-T, use force-udp-encapsulation on the site-to-site peer.",
-      metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "ubiquiti",
+        tunnelType: "ipsec",
+        section: "overview",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "pfsense-ipsec-overview",
       text: "pfSense IPsec Configuration for Magic WAN. Use IKEv2 with AES-256-CBC and SHA-256. DH group 14 (2048-bit). Child SA PFS group 14. IKE lifetime: 28800 seconds. Child SA lifetime: 3600 seconds. IMPORTANT: Disable Replay Detection under Advanced Configuration. Use User ID (email format) for local identification. Configure via VPN > IPsec in the web interface.",
-      metadata: { deviceType: "pfsense", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "pfsense",
+        tunnelType: "ipsec",
+        section: "overview",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "mwan-ipsec-params",
       text: "Magic WAN IPsec Parameters: IKE Version IKEv2 only, DH Group 20 (384-bit ECDH), Encryption AES-256-CBC or AES-256-GCM, Integrity SHA-256/384/512, IKE Lifetime 86400 seconds, IPsec Lifetime 28800 seconds, Anti-Replay MUST be disabled, PFS Group 20, MTU 1450, TCP MSS 1350.",
-      metadata: { deviceType: "all", tunnelType: "ipsec", section: "parameters", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "all",
+        tunnelType: "ipsec",
+        section: "parameters",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "mwan-gre-params",
       text: "Magic WAN GRE Parameters: MTU 1476, TCP MSS 1436, Keepalive 10 seconds with 3 retries recommended.",
-      metadata: { deviceType: "all", tunnelType: "gre", section: "parameters", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "all",
+        tunnelType: "gre",
+        section: "parameters",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "mwan-anti-replay",
       text: "Magic WAN Anti-Replay: MUST be disabled on customer device. Cloudflare uses anycast, packets may arrive at different data centers. Cisco IOS: set security-association replay disable. Fortinet: set replay disable. Palo Alto: set anti-replay no. Juniper: set no-anti-replay. Viptela: replay-window 0.",
-      metadata: { deviceType: "all", tunnelType: "ipsec", section: "anti-replay", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "all",
+        tunnelType: "ipsec",
+        section: "anti-replay",
+        source: "developers.cloudflare.com",
+      },
     },
     // Troubleshooting documentation chunks
     {
       id: "troubleshoot-ike-phase1",
       text: "IKE Phase 1 Troubleshooting: Common causes - Wrong PSK (check for typos, special characters), DH group mismatch (Magic WAN requires group 20), IKE version mismatch (MUST use IKEv2, NOT IKEv1/ISAKMP), wrong remote identity (use <account_id>.ipsec.cloudflare.com as local identity FQDN), firewall blocking UDP 500/4500. Cisco debug: 'debug crypto ikev2'. FortiGate: 'diagnose vpn ike log-filter'. Palo Alto: CLI 'show vpn ike-sa'. Juniper: 'show security ike security-associations'.",
-      metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-phase1", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "all",
+        tunnelType: "ipsec",
+        section: "troubleshoot-phase1",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "troubleshoot-ike-phase2",
       text: "IKE Phase 2 Troubleshooting: Common causes - Transform set mismatch (use AES-256-CBC or AES-256-GCM with SHA-256/384/512), PFS group mismatch (use group 20), IPsec lifetime mismatch (28800 seconds recommended), anti-replay enabled (MUST be disabled). Check traffic selectors match. Cisco: 'show crypto ipsec sa'. FortiGate: 'diagnose vpn tunnel list'. Palo Alto: 'show vpn ipsec-sa'. Juniper: 'show security ipsec security-associations'.",
-      metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-phase2", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "all",
+        tunnelType: "ipsec",
+        section: "troubleshoot-phase2",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "troubleshoot-anti-replay-errors",
       text: "Anti-Replay Error Troubleshooting: Symptom - 'Anti-replay check failed' or packet drops. Cause - Cloudflare uses anycast, packets may arrive at different data centers out of order. Solution - MUST disable anti-replay on customer device. Cisco: 'set security-association replay disable' in ipsec profile. Fortinet: 'set replay disable' in phase2-interface. Palo Alto: 'set anti-replay no'. Juniper: 'set security ipsec vpn <name> no-anti-replay'. Viptela: 'replay-window 0'.",
-      metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-anti-replay", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "all",
+        tunnelType: "ipsec",
+        section: "troubleshoot-anti-replay",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "troubleshoot-nat-t",
       text: "NAT-T Troubleshooting: Use when device is behind NAT/CGNAT. Symptoms - Tunnel establishes but traffic fails, UDP 500 blocked. Solution - Enable NAT-T (UDP 4500 encapsulation). Cisco: 'nat force-encap' in ikev2 profile. Fortinet: 'set nattraversal enable' and 'set ike-port 4500'. Palo Alto: Configure NAT-T in IKE gateway. Juniper: 'set nat-keepalive 10'. Verify firewall allows UDP 4500 outbound.",
-      metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-nat-t", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "all",
+        tunnelType: "ipsec",
+        section: "troubleshoot-nat-t",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "troubleshoot-mtu-fragmentation",
       text: "MTU/Fragmentation Troubleshooting: Symptoms - Large packets fail, TCP connections hang, ICMP works but HTTP fails. Solution - Set correct MTU and TCP MSS. IPsec: MTU 1450, MSS 1350. GRE: MTU 1476, MSS 1436. Cisco: 'ip mtu 1450' and 'ip tcp adjust-mss 1350' on tunnel interface. Fortinet: Configure in phase2-interface. Test with: 'ping -s 1400 -M do <cloudflare_endpoint>'. Enable path-mtu-discovery if supported.",
-      metadata: { deviceType: "all", tunnelType: "all", section: "troubleshoot-mtu", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "all",
+        tunnelType: "all",
+        section: "troubleshoot-mtu",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "troubleshoot-tunnel-down",
       text: "Tunnel Down/Flapping Troubleshooting: Check - 1) Verify endpoints are reachable (ping <cloudflare_endpoint>), 2) Check IKE SA status, 3) Verify DPD settings (10 sec interval, 3 retries recommended), 4) Check for duplicate tunnel IDs on Cloudflare dashboard, 5) Verify routing - traffic must be directed to tunnel interface. Common logs: 'IKE negotiation failed', 'No proposal chosen', 'Invalid ID'. Check firewall rules for UDP 500/4500.",
-      metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-tunnel-down", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "all",
+        tunnelType: "ipsec",
+        section: "troubleshoot-tunnel-down",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "troubleshoot-gre-issues",
       text: "GRE Tunnel Troubleshooting: Check - 1) Verify tunnel source/destination IPs, 2) Check GRE protocol (47) allowed through firewall, 3) Verify MTU 1476 and MSS 1436, 4) Check keepalive settings (10 sec, 3 retries), 5) Verify interface is up ('show interface Tunnel1'). Common issues - Source interface wrong, destination unreachable, MTU too high causing fragmentation. Use 'ping' to tunnel interface IP to verify connectivity.",
-      metadata: { deviceType: "all", tunnelType: "gre", section: "troubleshoot-gre", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "all",
+        tunnelType: "gre",
+        section: "troubleshoot-gre",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "troubleshoot-cisco-specific",
       text: "Cisco IOS Troubleshooting Commands: 'show crypto ikev2 sa' - View IKEv2 security associations. 'show crypto ipsec sa' - View IPsec SA details. 'show crypto session detail' - Full session info. 'debug crypto ikev2' - IKEv2 negotiation debug (use carefully). 'show interface Tunnel1' - Tunnel interface status. 'show ip route' - Verify routing. Common fix: Ensure 'no crypto isakmp enable' to force IKEv2 only.",
-      metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "troubleshoot-cisco", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "cisco-ios",
+        tunnelType: "ipsec",
+        section: "troubleshoot-cisco",
+        source: "developers.cloudflare.com",
+      },
     },
     {
       id: "troubleshoot-fortinet-specific",
       text: "FortiGate Troubleshooting Commands: 'diagnose vpn ike log-filter dst-addr4 <cf_ip>' - Filter IKE logs. 'diagnose debug app ike -1' - Enable IKE debug. 'get vpn ipsec tunnel summary' - Tunnel summary. 'diagnose vpn tunnel list name <tunnel>' - Detailed tunnel info. 'execute ping-options source <wan_ip>' then 'execute ping <cf_endpoint>'. Verify 'set asymroute-icmp enable' is configured. If using NAT-T, also verify 'set ike-port 4500' (global setting).",
-      metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "troubleshoot-fortinet", source: "developers.cloudflare.com" }
+      metadata: {
+        deviceType: "fortinet",
+        tunnelType: "ipsec",
+        section: "troubleshoot-fortinet",
+        source: "developers.cloudflare.com",
+      },
     },
   ];
 }
@@ -844,11 +1006,11 @@ function generateConfig(p: ConfigParams): string {
   const generators: Record<string, (p: ConfigParams) => string> = {
     "cisco-ios": generateCiscoIos,
     "cisco-sdwan": generateCiscoSdwan,
-    "fortinet": generateFortinet,
-    "paloalto": generatePaloAlto,
-    "juniper": generateJuniper,
-    "ubiquiti": generateUbiquiti,
-    "pfsense": generatePfSense,
+    fortinet: generateFortinet,
+    paloalto: generatePaloAlto,
+    juniper: generateJuniper,
+    ubiquiti: generateUbiquiti,
+    pfsense: generatePfSense,
   };
 
   const generator = generators[p.deviceType];
@@ -1076,13 +1238,17 @@ end
 # ============================================
 config system settings
     set asymroute-icmp enable
-end${p.enableNatT ? `
+end${
+    p.enableNatT
+      ? `
 
 # WARNING: This is a GLOBAL setting that affects ALL tunnels on this device!
 # Only apply if you need NAT-T for Magic WAN and understand the impact.
 config system global
     set ike-port 4500
-end` : ""}
+end`
+      : ""
+  }
 
 # ============================================
 # Phase 1 - AES-GCM-256, DH Group 20
@@ -1404,8 +1570,12 @@ set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication remote-id
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} ike-group CF-MWAN-IKE
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} local-address ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti bind vti0
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti esp-group CF-MWAN-ESP${p.enableNatT ? `
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} force-udp-encapsulation` : ""}
+set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} vti esp-group CF-MWAN-ESP${
+    p.enableNatT
+      ? `
+set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} force-udp-encapsulation`
+      : ""
+  }
 
 set vpn ipsec ipsec-interfaces interface eth0
 
@@ -2796,6 +2966,16 @@ function getHtml(): string {
     let selectedTunnel = null;
     let accountId = '';
 
+    // Security: Escape HTML to prevent XSS attacks
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     async function connect() {
       accountId = document.getElementById('accountId').value.trim();
       const apiToken = document.getElementById('apiToken').value.trim();
@@ -2837,7 +3017,7 @@ function getHtml(): string {
         const select = document.getElementById('tunnelSelect');
         select.innerHTML = '<option value="">Choose a tunnel...</option>' +
           tunnelsData.map((t, i) =>
-            '<option value="' + i + '">' + t.name + ' [' + t.tunnelType.toUpperCase() + ']</option>'
+            '<option value="' + i + '">' + escapeHtml(t.name) + ' [' + t.tunnelType.toUpperCase() + ']</option>'
           ).join('');
 
         // Update UI state

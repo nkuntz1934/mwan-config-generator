@@ -2,8 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "mwan-config-generator",
   "main": "src/index.ts",
-  "compatibility_date": "2024-12-18",
+  "compatibility_date": "2026-01-27",
   // Set CLOUDFLARE_ACCOUNT_ID environment variable or wrangler will prompt
+  // For admin endpoint security, set ADMIN_SECRET via: wrangler secret put ADMIN_SECRET
   "routes": [
     {
       "pattern": "mwan.cf-client-demo.com",
