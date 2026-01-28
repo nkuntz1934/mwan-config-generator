@@ -1736,10 +1736,9 @@ function generatePfSenseText(p: ConfigParams): string {
 function generatePfSenseXml(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
-  const timestamp = Math.floor(Date.now() / 1000);
   const uniqueId = Math.random().toString(16).substr(2, 13);
   const description = `Cloudflare Magic WAN - ${p.tunnelName}`;
-  const interfaceName = `MWAN_${p.tunnelName.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  const userId = p.tunnelFqdn.startsWith('ipsec@') ? p.tunnelFqdn : 'ipsec@' + p.tunnelFqdn;
 
   if (p.tunnelType === "gre") {
     return `<?xml version="1.0"?>
@@ -1756,152 +1755,89 @@ function generatePfSenseXml(p: ConfigParams): string {
   Generated: ${new Date().toISOString()}
 
   INSTRUCTIONS:
-  1. Navigate to VPN > IPsec in pfSense
-  2. Create Phase 1 and Phase 2 entries using the values below
-  3. Alternatively, you can edit your config.xml backup:
-     - Download backup from Diagnostics > Backup & Restore
-     - Add these sections inside the <ipsec> element
-     - Restore the modified config
+  To import this configuration:
+  1. Download your current pfSense config from Diagnostics > Backup & Restore
+  2. Copy the <ipsec> section below into your config.xml (inside the <pfsense> element)
+  3. Restore the modified config from Diagnostics > Backup & Restore
+  4. After restore, go to Interfaces > Assignments and assign the new ipsec interface
+  5. Configure the assigned interface with MTU 1450 and MSS 1350
 
   IMPORTANT:
-  - Disable Replay Detection in Phase 2 Advanced settings
-  - Use VTI (Routed) mode for Phase 2
+  - Replay Detection is NOT configured here - ensure it stays disabled (pfSense default)
+  - After import, verify settings in VPN > IPsec
 -->
-<pfsense_ipsec_config>
-  <ipsec>
-    <phase1>
-      <ikeid>1</ikeid>
-      <iketype>ikev2</iketype>
-      <interface>wan</interface>
-      <remote-gateway>${p.cloudflareEndpoint}</remote-gateway>
-      <protocol>inet</protocol>
-      <myid_type>user_fqdn</myid_type>
-      <myid_data>${p.tunnelFqdn.startsWith('ipsec@') ? p.tunnelFqdn : 'ipsec@' + p.tunnelFqdn}</myid_data>
-      <peerid_type>address</peerid_type>
-      <peerid_data>${p.cloudflareEndpoint}</peerid_data>
-      <encryption>
-        <item>
-          <encryption-algorithm>
-            <name>aes</name>
-            <keylen>256</keylen>
-          </encryption-algorithm>
-          <hash-algorithm>sha256</hash-algorithm>
-          <prf-algorithm>sha256</prf-algorithm>
-          <dhgroup>20</dhgroup>
-        </item>
-      </encryption>
-      <lifetime>86400</lifetime>
-      <rekey_time></rekey_time>
-      <reauth_time></reauth_time>
-      <rand_time></rand_time>
-      <pre-shared-key>${escapeXml(p.psk)}</pre-shared-key>
-      <private-key></private-key>
-      <certref></certref>
-      <pkcs11certref></pkcs11certref>
-      <pkcs11pin></pkcs11pin>
-      <caref></caref>
-      <authentication_method>pre_shared_key</authentication_method>
-      <descr><![CDATA[${description}]]></descr>
-      <nat_traversal>${p.enableNatT ? "on" : "auto"}</nat_traversal>
-      <mobike>off</mobike>
-      <startaction>start</startaction>
-      <closeaction>start</closeaction>
-      <dpd_delay>10</dpd_delay>
-      <dpd_maxfail>5</dpd_maxfail>
-    </phase1>
-    <phase2>
-      <ikeid>1</ikeid>
-      <uniqid>${uniqueId}</uniqid>
-      <mode>vti</mode>
-      <reqid>1</reqid>
-      <localid>
-        <type>address</type>
-        <address>${customerIp}</address>
-      </localid>
-      <remoteid>
-        <type>address</type>
-        <address>${cloudflareIp}</address>
-      </remoteid>
-      <protocol>esp</protocol>
-      <encryption-algorithm-option>
-        <name>aes</name>
-        <keylen>256</keylen>
-      </encryption-algorithm-option>
-      <hash-algorithm-option>hmac_sha256</hash-algorithm-option>
-      <pfsgroup>20</pfsgroup>
-      <lifetime>28800</lifetime>
-      <rekey_time></rekey_time>
-      <rand_time></rand_time>
-      <pinghost>${cloudflareIp}</pinghost>
-      <keepalive>enabled</keepalive>
-      <descr><![CDATA[${p.tunnelName} - Phase 2 VTI]]></descr>
-    </phase2>
-  </ipsec>
-
-  <!--
-    VTI Interface Assignment (after IPsec is configured):
-    Navigate to Interfaces > Assignments
-    Add the new ipsec interface that appears
-    Configure with:
-      - Enable: checked
-      - Description: ${interfaceName}
-      - IPv4 Configuration: None (VTI gets IP from Phase 2)
-      - MTU: 1450
-      - MSS: 1350
-  -->
-  <interface_assignment>
-    <descr><![CDATA[${interfaceName}]]></descr>
-    <if>ipsec1</if>
-    <mtu>1450</mtu>
-    <mss>1350</mss>
-  </interface_assignment>
-
-  <!--
-    Recommended Firewall Rules:
-    Create on the IPsec interface (or assigned VTI interface)
-  -->
-  <firewall_rules>
-    <rule>
-      <type>pass</type>
-      <interface>enc0</interface>
-      <ipprotocol>inet</ipprotocol>
-      <protocol>icmp</protocol>
-      <icmptype>any</icmptype>
-      <source><any></any></source>
-      <destination><any></any></destination>
-      <descr><![CDATA[Allow Cloudflare health checks (ICMP)]]></descr>
-    </rule>
-    <rule>
-      <type>pass</type>
-      <interface>enc0</interface>
-      <ipprotocol>inet</ipprotocol>
-      <source><any></any></source>
-      <destination><any></any></destination>
-      <descr><![CDATA[Allow all traffic on Magic WAN tunnel]]></descr>
-    </rule>
-  </firewall_rules>
-
-  <!--
-    Gateway Configuration:
-    A gateway should be auto-created when you assign the VTI interface
-    If not, create manually with:
-  -->
-  <gateway>
-    <interface>${interfaceName}</interface>
-    <gateway>${cloudflareIp}</gateway>
-    <name>${interfaceName}_GW</name>
-    <ipprotocol>inet</ipprotocol>
-    <monitor>${cloudflareIp}</monitor>
-  </gateway>
-
-  <!-- Quick Reference Values -->
-  <reference>
-    <cloudflare_endpoint>${p.cloudflareEndpoint}</cloudflare_endpoint>
-    <your_tunnel_ip>${customerIp}</your_tunnel_ip>
-    <cloudflare_tunnel_ip>${cloudflareIp}</cloudflare_tunnel_ip>
-    <user_id>${p.tunnelFqdn.startsWith('ipsec@') ? p.tunnelFqdn : 'ipsec@' + p.tunnelFqdn}</user_id>
-  </reference>
-</pfsense_ipsec_config>
+<pfsense>
+	<ipsec>
+		<client></client>
+		<phase1>
+			<ikeid>1</ikeid>
+			<iketype>ikev2</iketype>
+			<interface>wan</interface>
+			<remote-gateway>${p.cloudflareEndpoint}</remote-gateway>
+			<protocol>inet</protocol>
+			<myid_type>user_fqdn</myid_type>
+			<myid_data>${userId}</myid_data>
+			<peerid_type>address</peerid_type>
+			<peerid_data>${p.cloudflareEndpoint}</peerid_data>
+			<encryption>
+				<item>
+					<encryption-algorithm>
+						<name>aes</name>
+						<keylen>256</keylen>
+					</encryption-algorithm>
+					<hash-algorithm>sha256</hash-algorithm>
+					<prf-algorithm>sha256</prf-algorithm>
+					<dhgroup>20</dhgroup>
+				</item>
+			</encryption>
+			<lifetime>86400</lifetime>
+			<rekey_time></rekey_time>
+			<reauth_time></reauth_time>
+			<rand_time></rand_time>
+			<pre-shared-key>${escapeXml(p.psk)}</pre-shared-key>
+			<private-key></private-key>
+			<certref></certref>
+			<pkcs11certref></pkcs11certref>
+			<pkcs11pin></pkcs11pin>
+			<caref></caref>
+			<authentication_method>pre_shared_key</authentication_method>
+			<descr><![CDATA[${description}]]></descr>
+			<nat_traversal>${p.enableNatT ? "on" : "auto"}</nat_traversal>
+			<mobike>off</mobike>
+			<startaction>start</startaction>
+			<closeaction>start</closeaction>
+			<dpd_delay>10</dpd_delay>
+			<dpd_maxfail>5</dpd_maxfail>
+		</phase1>
+		<phase2>
+			<ikeid>1</ikeid>
+			<uniqid>${uniqueId}</uniqid>
+			<mode>vti</mode>
+			<reqid>1</reqid>
+			<localid>
+				<type>address</type>
+				<address>${customerIp}</address>
+			</localid>
+			<remoteid>
+				<type>address</type>
+				<address>${cloudflareIp}</address>
+			</remoteid>
+			<protocol>esp</protocol>
+			<encryption-algorithm-option>
+				<name>aes</name>
+				<keylen>256</keylen>
+			</encryption-algorithm-option>
+			<hash-algorithm-option>hmac_sha256</hash-algorithm-option>
+			<pfsgroup>20</pfsgroup>
+			<lifetime>28800</lifetime>
+			<rekey_time></rekey_time>
+			<rand_time></rand_time>
+			<pinghost>${cloudflareIp}</pinghost>
+			<keepalive>enabled</keepalive>
+			<descr><![CDATA[${p.tunnelName} - Phase 2 VTI]]></descr>
+		</phase2>
+	</ipsec>
+</pfsense>
 `;
 }
 
