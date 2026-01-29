@@ -3083,6 +3083,7 @@ function getHtml(): string {
       const info = document.getElementById('tunnelInfo');
       const pskField = document.getElementById('pskField');
       const natTField = document.getElementById('natTField');
+      const tunnelSourceField = document.getElementById('tunnelSourceField');
       const generateBtn = document.getElementById('generateBtn');
 
       if (idx === '') {
@@ -3090,6 +3091,7 @@ function getHtml(): string {
         info.classList.remove('visible');
         pskField.classList.remove('visible');
         natTField.classList.remove('visible');
+        tunnelSourceField.classList.remove('visible');
         generateBtn.disabled = true;
         return;
       }
@@ -3103,8 +3105,12 @@ function getHtml(): string {
       document.getElementById('infoInterface').textContent = selectedTunnel.interface_address;
       info.classList.add('visible');
 
-      // Show tunnel source field
-      document.getElementById('tunnelSourceField').classList.add('visible');
+      // Show tunnel source field only if customer endpoint is not already configured
+      if (selectedTunnel.customer_endpoint && selectedTunnel.customer_endpoint.trim()) {
+        tunnelSourceField.classList.remove('visible');
+      } else {
+        tunnelSourceField.classList.add('visible');
+      }
 
       // Show PSK field only for IPsec
       if (selectedTunnel.tunnelType === 'ipsec') {
@@ -3115,7 +3121,8 @@ function getHtml(): string {
         };
       } else {
         pskField.classList.remove('visible');
-        generateBtn.disabled = false;
+        // Enable generate button if customer endpoint is already configured, otherwise wait for manual entry
+        generateBtn.disabled = !(selectedTunnel.customer_endpoint && selectedTunnel.customer_endpoint.trim());
       }
 
       // Update NAT-T visibility based on tunnel type and device
@@ -3124,7 +3131,8 @@ function getHtml(): string {
 
     async function generateConfig() {
       const btn = document.getElementById('generateBtn');
-      const tunnelSource = document.getElementById('infoCustEndpoint').value.trim();
+      // Use customer_endpoint from API if available, otherwise get from input field
+      const tunnelSource = selectedTunnel.customer_endpoint || document.getElementById('infoCustEndpoint').value.trim();
 
       if (!tunnelSource) {
         showToast('Please enter your Tunnel Source', 'error');
@@ -3210,7 +3218,8 @@ function getHtml(): string {
         return;
       }
 
-      const tunnelSource = document.getElementById('infoCustEndpoint').value.trim();
+      // Use customer_endpoint from API if available, otherwise get from input field
+      const tunnelSource = selectedTunnel.customer_endpoint || document.getElementById('infoCustEndpoint').value.trim();
       if (!tunnelSource) {
         showToast('Please enter your Tunnel Source (WAN IP or interface) before downloading', 'error');
         document.getElementById('infoCustEndpoint').focus();
