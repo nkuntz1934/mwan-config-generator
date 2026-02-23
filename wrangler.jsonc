@@ -6,7 +6,7 @@
   // Set CLOUDFLARE_ACCOUNT_ID environment variable or wrangler will prompt
   "routes": [
     {
-      "pattern": "mwan.cf-client-demo.com",
+      "pattern": "cfwan.cf-client-demo.com",
       "custom_domain": true
     }
   ],

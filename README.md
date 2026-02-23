@@ -1,10 +1,10 @@
-# Magic WAN Configuration Generator
+# Cloudflare WAN Configuration Generator
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Cloudflare Worker that generates device configurations for Magic WAN IPsec and GRE tunnels. Supports both template-based and AI-powered configuration generation using Workers AI and Vectorize.
+A Cloudflare Worker that generates device configurations for Cloudflare WAN IPsec and GRE tunnels. Supports both template-based and AI-powered configuration generation using Workers AI and Vectorize.
 
-**Live URL:** https://mwan.cf-client-demo.com
+**Live URL:** https://cfwan.cf-client-demo.com
 
 ## Features
 
@@ -15,9 +15,9 @@ Default mode using pre-defined templates for each device type. Produces consiste
 Optional mode using Workers AI (Qwen 2.5 Coder 32B) with Vectorize for RAG-based generation. Queries embedded documentation to generate configurations dynamically. Includes automatic repetition detection to prevent looping output.
 
 ### Troubleshooting Chat
-Interactive AI-powered troubleshooting assistant for diagnosing Magic WAN tunnel issues. Users can paste device logs, error messages, or describe problems to get context-aware diagnostics and fixes. The assistant understands:
+Interactive AI-powered troubleshooting assistant for diagnosing Cloudflare WAN tunnel issues. Users can paste device logs, error messages, or describe problems to get context-aware diagnostics and fixes. The assistant understands:
 - IKE Phase 1/2 failures (DH group mismatch, PSK issues, identity problems)
-- Anti-replay errors (must be disabled for Magic WAN)
+- Anti-replay errors (must be disabled for Cloudflare WAN)
 - NAT-T configuration issues (UDP 4500 encapsulation)
 - MTU/fragmentation problems
 - Device-specific debug commands
@@ -61,8 +61,8 @@ Generated configurations use Cloudflare's recommended settings:
 
 ```
                                     +------------------+
-                                    |   Cloudflare     |
-                                    |   Magic WAN API  |
+                                    |    Cloudflare    |
+                                    |  Cloudflare WAN  |
                                     +--------+---------+
                                              |
 +------------------+     +-----------+       |
@@ -152,7 +152,7 @@ npm run deploy
 After deployment, populate the Vectorize index:
 
 ```bash
-curl -X POST https://mwan.cf-client-demo.com/populate
+curl -X POST https://cfwan.cf-client-demo.com/populate
 ```
 
 ## Configuration
@@ -187,8 +187,8 @@ Edit `wrangler.jsonc`:
 
 ## Requirements
 
-- Cloudflare account with Magic WAN enabled
-- API token with `Magic WAN Read` permission
+- Cloudflare account with Cloudflare WAN enabled
+- API token with `Cloudflare WAN Read` permission
 - Workers AI binding
 - Vectorize index (`mwan-docs`, 768 dimensions, cosine metric)
 
@@ -234,9 +234,9 @@ The `mwan-docs` index stores embedded documentation:
 
 ## References
 
-- [Magic WAN Documentation](https://developers.cloudflare.com/magic-wan/)
-- [IPsec Tunnels Reference](https://developers.cloudflare.com/magic-wan/reference/tunnels/)
-- [Third-party Device Configuration](https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/)
+- [Cloudflare WAN Documentation](https://developers.cloudflare.com/cloudflare-wan/)
+- [IPsec Tunnels Reference](https://developers.cloudflare.com/cloudflare-wan/reference/tunnels/)
+- [Third-party Device Configuration](https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/)
 - [Workers AI](https://developers.cloudflare.com/workers-ai/)
 - [Vectorize](https://developers.cloudflare.com/vectorize/)
 

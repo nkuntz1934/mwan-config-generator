@@ -1,5 +1,5 @@
 /**
- * Script to populate Vectorize index with Magic WAN documentation
+ * Script to populate Vectorize index with Cloudflare WAN documentation
  * Run with: npx wrangler dev scripts/populate-vectorize.ts --test-scheduled
  * Or deploy and trigger via: curl -X POST https://your-worker.dev/__scheduled
  */
@@ -25,7 +25,7 @@ const DOC_CHUNKS: DocChunk[] = [
   // Cisco IOS-XE IPsec
   {
     id: "cisco-ios-ipsec-overview",
-    text: `Cisco IOS-XE IPsec Configuration for Magic WAN. Use IKEv2 with DH group 20 (384-bit ECDH). Encryption should be AES-256-CBC or AES-256-GCM. Integrity algorithms: SHA-256, SHA-384, or SHA-512. IKE lifetime: 86400 seconds (24 hours). IPsec lifetime: 28800 seconds (8 hours). Anti-replay must be disabled. MTU: 1450, TCP MSS: 1350.`,
+    text: `Cisco IOS-XE IPsec Configuration for Cloudflare WAN. Use IKEv2 with DH group 20 (384-bit ECDH). Encryption should be AES-256-CBC or AES-256-GCM. Integrity algorithms: SHA-256, SHA-384, or SHA-512. IKE lifetime: 86400 seconds (24 hours). IPsec lifetime: 28800 seconds (8 hours). Anti-replay must be disabled. MTU: 1450, TCP MSS: 1350.`,
     metadata: { deviceType: "cisco-ios", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
   },
   {
@@ -75,7 +75,7 @@ Anti-replay must be disabled. PFS uses group20. Kilobyte-based lifetime should b
     id: "cisco-ios-ipsec-tunnel",
     text: `Cisco IOS-XE Tunnel Interface:
 interface Tunnel1
-  description Cloudflare Magic WAN
+  description Cloudflare WAN
   ip address <customer_ip> 255.255.255.254
   tunnel source <customer_endpoint>
   tunnel mode ipsec ipv4
@@ -95,7 +95,7 @@ MTU 1450 and MSS 1350 are required. Enable path-mtu-discovery. Enable invalid-sp
     id: "cisco-ios-gre-tunnel",
     text: `Cisco IOS-XE GRE Tunnel Configuration:
 interface Tunnel1
-  description Cloudflare Magic WAN GRE
+  description Cloudflare WAN GRE
   ip address <customer_ip> 255.255.255.254
   tunnel source <customer_endpoint>
   tunnel destination <cloudflare_endpoint>
@@ -112,7 +112,7 @@ For GRE tunnels, MTU is 1476 and MSS is 1436. Keepalives should be 10 seconds wi
   // Cisco SD-WAN (Viptela)
   {
     id: "cisco-sdwan-ipsec-overview",
-    text: `Cisco SD-WAN (Viptela) IPsec Configuration for Magic WAN. IPsec is only supported on Cisco 8000v in router mode. Use IKEv2 with cipher-suite aes256-cbc-sha256 and group 20. IKE rekey 86400 seconds, IPsec rekey 28800 seconds. Replay window must be 0 (disabled). For NAT-T, add 'nat-t enable' in the IKE section.`,
+    text: `Cisco SD-WAN (Viptela) IPsec Configuration for Cloudflare WAN. IPsec is only supported on Cisco 8000v in router mode. Use IKEv2 with cipher-suite aes256-cbc-sha256 and group 20. IKE rekey 86400 seconds, IPsec rekey 28800 seconds. Replay window must be 0 (disabled). For NAT-T, add 'nat-t enable' in the IKE section.`,
     metadata: { deviceType: "cisco-sdwan", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
   },
   {
@@ -120,7 +120,7 @@ For GRE tunnels, MTU is 1476 and MSS is 1436. Keepalives should be 10 seconds wi
     text: `Cisco SD-WAN IPsec Interface Configuration:
 vpn 0
   interface ipsec1
-    description "Cloudflare Magic WAN"
+    description "Cloudflare WAN"
     ip address <customer_ip>/31
     tunnel-source-interface ge0/0
     tunnel-destination <cloudflare_endpoint>
@@ -148,7 +148,7 @@ vpn 0
     text: `Cisco SD-WAN GRE Interface Configuration:
 vpn 0
   interface gre1
-    description "Cloudflare Magic WAN GRE"
+    description "Cloudflare WAN GRE"
     ip address <customer_ip>/31
     tunnel-source-interface ge0/0
     tunnel-destination <cloudflare_endpoint>
@@ -163,7 +163,7 @@ GRE tunnels use MTU 1476 and MSS 1436.`,
   // Fortinet FortiGate
   {
     id: "fortinet-ipsec-overview",
-    text: `Fortinet FortiGate IPsec Configuration for Magic WAN. CRITICAL: Must enable asymmetric routing and set IKE port to 4500. Use IKEv2 with AES-256-GCM and DH group 20. Phase 1 keylife: 86400 seconds. Phase 2 must disable replay. Local ID format: <account_id>.ipsec.cloudflare.com. For NAT-T, set nattraversal enable in phase1-interface.`,
+    text: `Fortinet FortiGate IPsec Configuration for Cloudflare WAN. CRITICAL: Must enable asymmetric routing and set IKE port to 4500. Use IKEv2 with AES-256-GCM and DH group 20. Phase 1 keylife: 86400 seconds. Phase 2 must disable replay. Local ID format: <account_id>.ipsec.cloudflare.com. For NAT-T, set nattraversal enable in phase1-interface.`,
     metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
   },
   {
@@ -246,7 +246,7 @@ GRE tunnels use MTU 1476.`,
   // Palo Alto Networks
   {
     id: "paloalto-ipsec-overview",
-    text: `Palo Alto Networks IPsec Configuration for Magic WAN. Use IKEv2 with DH group 20 and AES-256-CBC encryption. IKE lifetime: 24 hours. IPsec lifetime: 8 hours. Anti-replay must be disabled. For NAT-T, configure nat-traversal enable on the IKE gateway. Local identity uses FQDN format: <account_id>.ipsec.cloudflare.com`,
+    text: `Palo Alto Networks IPsec Configuration for Cloudflare WAN. Use IKEv2 with DH group 20 and AES-256-CBC encryption. IKE lifetime: 24 hours. IPsec lifetime: 8 hours. Anti-replay must be disabled. For NAT-T, configure nat-traversal enable on the IKE gateway. Local identity uses FQDN format: <account_id>.ipsec.cloudflare.com`,
     metadata: { deviceType: "paloalto", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
   },
   {
@@ -292,7 +292,7 @@ Enable DPD. Use IKEv2 only. Configure NAT-T. Set local-id as FQDN.`,
     text: `Palo Alto Tunnel Interface and IPsec Tunnel:
 set network interface tunnel units tunnel.1 ip <customer_ip>/31
 set network interface tunnel units tunnel.1 mtu 1450
-set network interface tunnel units tunnel.1 comment "Cloudflare Magic WAN"
+set network interface tunnel units tunnel.1 comment "Cloudflare WAN"
 set network profiles interface-management-profile Allow_Ping ping yes
 set network interface tunnel units tunnel.1 interface-management-profile Allow_Ping
 
@@ -320,7 +320,7 @@ GRE on Palo Alto uses tunnel interface with MTU 1476. Native GRE support varies 
   // Juniper SRX
   {
     id: "juniper-ipsec-overview",
-    text: `Juniper SRX IPsec Configuration for Magic WAN. Use IKEv2 only (version v2-only). DH group 20 with AES-256-CBC. IKE lifetime: 86400 seconds. IPsec lifetime: 28800 seconds. Anti-replay must be disabled (no-anti-replay). For NAT-T, set nat-keepalive 10 on the IKE gateway.`,
+    text: `Juniper SRX IPsec Configuration for Cloudflare WAN. Use IKEv2 only (version v2-only). DH group 20 with AES-256-CBC. IKE lifetime: 86400 seconds. IPsec lifetime: 28800 seconds. Anti-replay must be disabled (no-anti-replay). For NAT-T, set nat-keepalive 10 on the IKE gateway.`,
     metadata: { deviceType: "juniper", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
   },
   {
@@ -376,7 +376,7 @@ set security ipsec vpn cf_vpn ike no-anti-replay
 set security ipsec vpn cf_vpn ike ipsec-policy cf_ipsec_pol
 set security ipsec vpn cf_vpn establish-tunnels immediately
 
-set interfaces st0 unit 0 description "Cloudflare Magic WAN"
+set interfaces st0 unit 0 description "Cloudflare WAN"
 set interfaces st0 unit 0 family inet address <customer_ip>/31
 
 set security zones security-zone cloudflare interfaces st0.0 host-inbound-traffic system-services all
@@ -388,7 +388,7 @@ CRITICAL: no-anti-replay must be set. Use st0 interface.`,
   {
     id: "juniper-gre",
     text: `Juniper SRX GRE Configuration:
-set interfaces gr-0/0/0 unit 0 description "Cloudflare Magic WAN GRE"
+set interfaces gr-0/0/0 unit 0 description "Cloudflare WAN GRE"
 set interfaces gr-0/0/0 unit 0 tunnel source <customer_endpoint>
 set interfaces gr-0/0/0 unit 0 tunnel destination <cloudflare_endpoint>
 set interfaces gr-0/0/0 unit 0 family inet address <customer_ip>/31
@@ -404,7 +404,7 @@ GRE uses gr-0/0/0 interface with MTU 1476.`,
   // Ubiquiti / VyOS
   {
     id: "ubiquiti-ipsec-overview",
-    text: `Ubiquiti EdgeRouter / VyOS IPsec Configuration for Magic WAN. Use IKEv2 with AES-256 and SHA-256. DH group 20. IKE lifetime: 86400 seconds. ESP lifetime: 28800 seconds. DPD with 30 second interval. For NAT-T, use force-udp-encapsulation on the site-to-site peer.`,
+    text: `Ubiquiti EdgeRouter / VyOS IPsec Configuration for Cloudflare WAN. Use IKEv2 with AES-256 and SHA-256. DH group 20. IKE lifetime: 86400 seconds. ESP lifetime: 28800 seconds. DPD with 30 second interval. For NAT-T, use force-udp-encapsulation on the site-to-site peer.`,
     metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
   },
   {
@@ -437,7 +437,7 @@ AES-256, SHA-256, 28800 lifetime, PFS with DH group 20, tunnel mode.`,
   {
     id: "ubiquiti-peer",
     text: `Ubiquiti/VyOS Site-to-Site Peer:
-set vpn ipsec site-to-site peer <cloudflare_endpoint> description "Cloudflare Magic WAN"
+set vpn ipsec site-to-site peer <cloudflare_endpoint> description "Cloudflare WAN"
 set vpn ipsec site-to-site peer <cloudflare_endpoint> authentication mode pre-shared-secret
 set vpn ipsec site-to-site peer <cloudflare_endpoint> authentication pre-shared-secret "<psk>"
 set vpn ipsec site-to-site peer <cloudflare_endpoint> ike-group CF-IKE
@@ -454,7 +454,7 @@ Use VTI (vti0). For NAT-T, add force-udp-encapsulation.`,
   {
     id: "ubiquiti-vti",
     text: `Ubiquiti/VyOS VTI Interface:
-set interfaces vti vti0 description "Cloudflare Magic WAN"
+set interfaces vti vti0 description "Cloudflare WAN"
 set interfaces vti vti0 address <customer_ip>/31
 set interfaces vti vti0 mtu 1450
 
@@ -464,7 +464,7 @@ VTI interface with /31 addressing and MTU 1450.`,
   {
     id: "ubiquiti-gre",
     text: `Ubiquiti/VyOS GRE Configuration:
-set interfaces tunnel tun0 description "Cloudflare Magic WAN GRE"
+set interfaces tunnel tun0 description "Cloudflare WAN GRE"
 set interfaces tunnel tun0 encapsulation gre
 set interfaces tunnel tun0 local-ip <customer_endpoint>
 set interfaces tunnel tun0 remote-ip <cloudflare_endpoint>
@@ -478,7 +478,7 @@ GRE uses tunnel interface with encapsulation gre and MTU 1476.`,
   // General IPsec parameters
   {
     id: "mwan-ipsec-params",
-    text: `Magic WAN IPsec Recommended Parameters:
+    text: `Cloudflare WAN IPsec Recommended Parameters:
 - IKE Version: IKEv2 only (required)
 - DH Group: 20 (384-bit ECDH) - primary, 14 as fallback
 - Encryption: AES-256-CBC or AES-256-GCM
@@ -494,7 +494,7 @@ GRE uses tunnel interface with encapsulation gre and MTU 1476.`,
   },
   {
     id: "mwan-gre-params",
-    text: `Magic WAN GRE Recommended Parameters:
+    text: `Cloudflare WAN GRE Recommended Parameters:
 - MTU: 1476
 - TCP MSS: 1436
 - Keepalive: 10 seconds with 3 retries (recommended)
@@ -505,7 +505,7 @@ GRE tunnels are simpler but don't provide encryption. Use IPsec for encrypted co
   },
   {
     id: "mwan-identity",
-    text: `Magic WAN IKE Identity Configuration:
+    text: `Cloudflare WAN IKE Identity Configuration:
 - Local Identity Format: <account_id>.ipsec.cloudflare.com
 - Identity Type: FQDN
 - The account ID is your Cloudflare account ID
@@ -514,7 +514,7 @@ GRE tunnels are simpler but don't provide encryption. Use IPsec for encrypted co
   },
   {
     id: "mwan-anti-replay",
-    text: `Magic WAN Anti-Replay Requirement:
+    text: `Cloudflare WAN Anti-Replay Requirement:
 Anti-replay protection MUST be disabled on the customer device. This is because Cloudflare uses anycast routing, and packets may arrive at different data centers with non-sequential sequence numbers. Failing to disable anti-replay will cause intermittent packet drops and connectivity issues.
 
 Device-specific settings:

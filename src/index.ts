@@ -5,13 +5,13 @@ interface Env {
 
 // Cloudflare docs URLs for each device type
 const DOC_URLS: Record<string, string> = {
-  "cisco-ios": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/cisco-ios-xe/",
-  "fortinet": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/fortinet/",
-  "paloalto": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/palo-alto/",
-  "juniper": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/juniper/",
-  "cisco-sdwan": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/viptela/",
-  "pfsense": "https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/pfsense/",
-  "ipsec-params": "https://developers.cloudflare.com/magic-wan/reference/tunnels/",
+  "cisco-ios": "https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/cisco-ios-xe/",
+  "fortinet": "https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/fortinet/",
+  "paloalto": "https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/palo-alto/",
+  "juniper": "https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/juniper/",
+  "cisco-sdwan": "https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/viptela/",
+  "pfsense": "https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/pfsense/",
+  "ipsec-params": "https://developers.cloudflare.com/cloudflare-wan/reference/tunnels/",
 };
 
 export default {
@@ -328,7 +328,7 @@ async function handleGenerateAI(request: Request, env: Env): Promise<Response> {
 
   try {
     // Generate embedding for the query
-    const queryText = `${getDeviceName(params.deviceType)} ${params.tunnelType} configuration for Magic WAN tunnel ${params.enableNatT ? "with NAT-T enabled" : ""}`;
+    const queryText = `${getDeviceName(params.deviceType)} ${params.tunnelType} configuration for Cloudflare WAN tunnel ${params.enableNatT ? "with NAT-T enabled" : ""}`;
 
     const queryEmbedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
       text: queryText,
@@ -360,7 +360,7 @@ async function handleGenerateAI(request: Request, env: Env): Promise<Response> {
     const customerIp = getCustomerIp(params.interfaceAddress);
 
     // Generate config using AI
-    const prompt = `You are generating device configurations for Cloudflare Magic WAN.
+    const prompt = `You are generating device configurations for Cloudflare WAN.
 
 CRITICAL RULES - FOLLOW EXACTLY:
 1. Use ONLY the configuration syntax from the REFERENCE DOCUMENTATION below
@@ -566,7 +566,7 @@ async function handleTroubleshoot(request: Request, env: Env): Promise<Response>
     }
 
     // Build query for Vectorize to find relevant troubleshooting docs
-    const queryText = `troubleshooting ${context.deviceType} ${context.tunnelType} Magic WAN tunnel ${message}`;
+    const queryText = `troubleshooting ${context.deviceType} ${context.tunnelType} Cloudflare WAN tunnel ${message}`;
 
     const queryEmbedding = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
       text: queryText,
@@ -599,7 +599,7 @@ async function handleTroubleshoot(request: Request, env: Env): Promise<Response>
       .join("\n\n");
 
     // Build troubleshooting system prompt
-    const prompt = `You are a Cloudflare Magic WAN troubleshooting expert. The user is having issues with their ${getDeviceName(context.deviceType)} ${context.tunnelType.toUpperCase()} tunnel configuration.
+    const prompt = `You are a Cloudflare WAN troubleshooting expert. The user is having issues with their ${getDeviceName(context.deviceType)} ${context.tunnelType.toUpperCase()} tunnel configuration.
 
 TUNNEL CONTEXT:
 - Device: ${getDeviceName(context.deviceType)}
@@ -614,10 +614,10 @@ ${docContext}
 
 TROUBLESHOOTING GUIDELINES:
 1. Analyze logs, error messages, or configs the user pastes
-2. Identify common Magic WAN issues:
+2. Identify common Cloudflare WAN issues:
    - IKE Phase 1 failures (DH group mismatch, PSK wrong, identity issues)
    - IKE Phase 2 failures (transform set mismatch, PFS issues)
-   - Anti-replay errors (MUST be disabled for Magic WAN)
+   - Anti-replay errors (MUST be disabled for Cloudflare WAN)
    - NAT-T issues (UDP 4500 encapsulation)
    - MTU/fragmentation problems (IPsec MTU 1450, GRE MTU 1476)
 3. Provide specific fixes with exact commands for their device type
@@ -703,10 +703,10 @@ function extractDocContent(html: string, deviceType: string): string | null {
     "paloalto": "Palo Alto Networks",
     "juniper": "Juniper SRX",
     "cisco-sdwan": "Cisco SD-WAN Viptela",
-    "ipsec-params": "Magic WAN IPsec Parameters",
+    "ipsec-params": "Cloudflare WAN IPsec Parameters",
   };
 
-  const prefix = `${deviceNames[deviceType] || deviceType} configuration for Cloudflare Magic WAN. MUST use IKEv2 (NOT IKEv1/ISAKMP). Anti-replay MUST be disabled.\n\nEXACT CONFIGURATION FROM CLOUDFLARE DOCS:\n`;
+  const prefix = `${deviceNames[deviceType] || deviceType} configuration for Cloudflare WAN. MUST use IKEv2 (NOT IKEv1/ISAKMP). Anti-replay MUST be disabled.\n\nEXACT CONFIGURATION FROM CLOUDFLARE DOCS:\n`;
 
   return prefix + codeBlocks.join("\n\n---\n\n");
 }
@@ -739,7 +739,7 @@ function getDocChunks(): DocChunk[] {
   return [
     {
       id: "cisco-ios-ipsec-full-config",
-      text: `Cisco IOS-XE IPsec Configuration for Magic WAN. MUST use IKEv2 (crypto ikev2), NOT IKEv1/ISAKMP.
+      text: `Cisco IOS-XE IPsec Configuration for Cloudflare WAN. MUST use IKEv2 (crypto ikev2), NOT IKEv1/ISAKMP.
 EXACT CONFIG:
 crypto ikev2 proposal CF_PROPOSAL
  encryption aes-cbc-256
@@ -780,53 +780,53 @@ For NAT-T add: nat force-encap under crypto ikev2 profile`,
     },
     {
       id: "fortinet-ipsec-overview",
-      text: "Fortinet FortiGate IPsec Configuration for Magic WAN. CRITICAL: Must enable asymmetric routing (set asymroute-icmp enable). Use IKEv2 with AES-256-GCM and DH group 20. Phase 1 keylife: 86400 seconds. Phase 2 must disable replay. Phase1 interface name has 15-character limit. For NAT-T, set nattraversal enable and set ike-port 4500 (WARNING: ike-port is a global setting affecting all tunnels).",
+      text: "Fortinet FortiGate IPsec Configuration for Cloudflare WAN. CRITICAL: Must enable asymmetric routing (set asymroute-icmp enable). Use IKEv2 with AES-256-GCM and DH group 20. Phase 1 keylife: 86400 seconds. Phase 2 must disable replay. Phase1 interface name has 15-character limit. For NAT-T, set nattraversal enable and set ike-port 4500 (WARNING: ike-port is a global setting affecting all tunnels).",
       metadata: { deviceType: "fortinet", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
     },
     {
       id: "paloalto-ipsec-overview",
-      text: "Palo Alto Networks IPsec Configuration for Magic WAN. Use IKEv2 with DH group 20 and AES-256-CBC encryption. IKE lifetime: 24 hours. IPsec lifetime: 8 hours. Anti-replay must be disabled (set anti-replay no). For NAT-T, configure nat-traversal enable on the IKE gateway.",
+      text: "Palo Alto Networks IPsec Configuration for Cloudflare WAN. Use IKEv2 with DH group 20 and AES-256-CBC encryption. IKE lifetime: 24 hours. IPsec lifetime: 8 hours. Anti-replay must be disabled (set anti-replay no). For NAT-T, configure nat-traversal enable on the IKE gateway.",
       metadata: { deviceType: "paloalto", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
     },
     {
       id: "juniper-ipsec-overview",
-      text: "Juniper SRX IPsec Configuration for Magic WAN. Use IKEv2 only (version v2-only). DH group 20 with AES-256-CBC. IKE lifetime: 86400 seconds. IPsec lifetime: 28800 seconds. Anti-replay must be disabled (no-anti-replay). For NAT-T, set nat-keepalive 10 on the IKE gateway.",
+      text: "Juniper SRX IPsec Configuration for Cloudflare WAN. Use IKEv2 only (version v2-only). DH group 20 with AES-256-CBC. IKE lifetime: 86400 seconds. IPsec lifetime: 28800 seconds. Anti-replay must be disabled (no-anti-replay). For NAT-T, set nat-keepalive 10 on the IKE gateway.",
       metadata: { deviceType: "juniper", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
     },
     {
       id: "cisco-sdwan-ipsec-overview",
-      text: "Cisco SD-WAN (Viptela) IPsec Configuration for Magic WAN. IPsec is only supported on Cisco 8000v in router mode. Use IKEv2 with cipher-suite aes256-cbc-sha256 and group 20. IKE rekey 86400, IPsec rekey 28800. Replay window must be 0 (disabled). For NAT-T, add 'nat-t enable' in the IKE section.",
+      text: "Cisco SD-WAN (Viptela) IPsec Configuration for Cloudflare WAN. IPsec is only supported on Cisco 8000v in router mode. Use IKEv2 with cipher-suite aes256-cbc-sha256 and group 20. IKE rekey 86400, IPsec rekey 28800. Replay window must be 0 (disabled). For NAT-T, add 'nat-t enable' in the IKE section.",
       metadata: { deviceType: "cisco-sdwan", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
     },
     {
       id: "ubiquiti-ipsec-overview",
-      text: "Ubiquiti EdgeRouter / VyOS IPsec Configuration for Magic WAN. Requires EdgeOS 2.0+ (1.x has critical strongSwan bug). Use IKEv2 with AES-256, SHA-256 for IKE and SHA1 for ESP (EdgeOS limitation). DH group 14. IKE lifetime: 28800 seconds. ESP lifetime: 28800 seconds. Set authentication id to your public IP when behind NAT. Enable nat-traversal globally.",
+      text: "Ubiquiti EdgeRouter / VyOS IPsec Configuration for Cloudflare WAN. Requires EdgeOS 2.0+ (1.x has critical strongSwan bug). Use IKEv2 with AES-256, SHA-256 for IKE and SHA1 for ESP (EdgeOS limitation). DH group 14. IKE lifetime: 28800 seconds. ESP lifetime: 28800 seconds. Set authentication id to your public IP when behind NAT. Enable nat-traversal globally.",
       metadata: { deviceType: "ubiquiti", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
     },
     {
       id: "pfsense-ipsec-overview",
-      text: "pfSense IPsec Configuration for Magic WAN. Use IKEv2 with AES-256-CBC and SHA-256. DH group 14 (2048-bit). Child SA PFS group 14. IKE lifetime: 28800 seconds. Child SA lifetime: 3600 seconds. IMPORTANT: Disable Replay Detection under Advanced Configuration. Use User ID (email format) for local identification. Configure via VPN > IPsec in the web interface.",
+      text: "pfSense IPsec Configuration for Cloudflare WAN. Use IKEv2 with AES-256-CBC and SHA-256. DH group 14 (2048-bit). Child SA PFS group 14. IKE lifetime: 28800 seconds. Child SA lifetime: 3600 seconds. IMPORTANT: Disable Replay Detection under Advanced Configuration. Use User ID (email format) for local identification. Configure via VPN > IPsec in the web interface.",
       metadata: { deviceType: "pfsense", tunnelType: "ipsec", section: "overview", source: "developers.cloudflare.com" }
     },
     {
       id: "mwan-ipsec-params",
-      text: "Magic WAN IPsec Parameters: IKE Version IKEv2 only, DH Group 20 (384-bit ECDH), Encryption AES-256-CBC or AES-256-GCM, Integrity SHA-256/384/512, IKE Lifetime 86400 seconds, IPsec Lifetime 28800 seconds, Anti-Replay MUST be disabled, PFS Group 20, MTU 1450, TCP MSS 1350.",
+      text: "Cloudflare WAN IPsec Parameters: IKE Version IKEv2 only, DH Group 20 (384-bit ECDH), Encryption AES-256-CBC or AES-256-GCM, Integrity SHA-256/384/512, IKE Lifetime 86400 seconds, IPsec Lifetime 28800 seconds, Anti-Replay MUST be disabled, PFS Group 20, MTU 1450, TCP MSS 1350.",
       metadata: { deviceType: "all", tunnelType: "ipsec", section: "parameters", source: "developers.cloudflare.com" }
     },
     {
       id: "mwan-gre-params",
-      text: "Magic WAN GRE Parameters: MTU 1476, TCP MSS 1436, Keepalive 10 seconds with 3 retries recommended.",
+      text: "Cloudflare WAN GRE Parameters: MTU 1476, TCP MSS 1436, Keepalive 10 seconds with 3 retries recommended.",
       metadata: { deviceType: "all", tunnelType: "gre", section: "parameters", source: "developers.cloudflare.com" }
     },
     {
       id: "mwan-anti-replay",
-      text: "Magic WAN Anti-Replay: MUST be disabled on customer device. Cloudflare uses anycast, packets may arrive at different data centers. Cisco IOS: set security-association replay disable. Fortinet: set replay disable. Palo Alto: set anti-replay no. Juniper: set no-anti-replay. Viptela: replay-window 0.",
+      text: "Cloudflare WAN Anti-Replay: MUST be disabled on customer device. Cloudflare uses anycast, packets may arrive at different data centers. Cisco IOS: set security-association replay disable. Fortinet: set replay disable. Palo Alto: set anti-replay no. Juniper: set no-anti-replay. Viptela: replay-window 0.",
       metadata: { deviceType: "all", tunnelType: "ipsec", section: "anti-replay", source: "developers.cloudflare.com" }
     },
     // Troubleshooting documentation chunks
     {
       id: "troubleshoot-ike-phase1",
-      text: "IKE Phase 1 Troubleshooting: Common causes - Wrong PSK (check for typos, special characters), DH group mismatch (Magic WAN requires group 20), IKE version mismatch (MUST use IKEv2, NOT IKEv1/ISAKMP), wrong remote identity (use <account_id>.ipsec.cloudflare.com as local identity FQDN), firewall blocking UDP 500/4500. Cisco debug: 'debug crypto ikev2'. FortiGate: 'diagnose vpn ike log-filter'. Palo Alto: CLI 'show vpn ike-sa'. Juniper: 'show security ike security-associations'.",
+      text: "IKE Phase 1 Troubleshooting: Common causes - Wrong PSK (check for typos, special characters), DH group mismatch (Cloudflare WAN requires group 20), IKE version mismatch (MUST use IKEv2, NOT IKEv1/ISAKMP), wrong remote identity (use <account_id>.ipsec.cloudflare.com as local identity FQDN), firewall blocking UDP 500/4500. Cisco debug: 'debug crypto ikev2'. FortiGate: 'diagnose vpn ike log-filter'. Palo Alto: CLI 'show vpn ike-sa'. Juniper: 'show security ike security-associations'.",
       metadata: { deviceType: "all", tunnelType: "ipsec", section: "troubleshoot-phase1", source: "developers.cloudflare.com" }
     },
     {
@@ -907,21 +907,21 @@ function getCustomerIp(cfInterfaceAddr: string): string {
 
 // ============================================
 // Cisco IOS/IOS-XE
-// Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/cisco-ios-xe/
+// Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/cisco-ios-xe/
 // ============================================
 function generateCiscoIos(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
 
   if (p.tunnelType === "gre") {
-    return `! Cisco IOS/IOS-XE GRE Configuration for Cloudflare Magic WAN
+    return `! Cisco IOS/IOS-XE GRE Configuration for Cloudflare WAN
 ! Tunnel: ${p.tunnelName}
 ! Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 ! Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
-! Reference: https://developers.cloudflare.com/magic-wan/reference/gre-ipsec-tunnels/
+! Reference: https://developers.cloudflare.com/cloudflare-wan/reference/gre-ipsec-tunnels/
 
 interface Tunnel1
- description Cloudflare Magic WAN - ${p.tunnelName}
+ description Cloudflare WAN - ${p.tunnelName}
  ip address ${customerIp} 255.255.255.254
  ip ospf network point-to-point
  tunnel source ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
@@ -934,29 +934,29 @@ interface Tunnel1
 `;
   }
 
-  return `! Cisco IOS/IOS-XE IPsec Configuration for Cloudflare Magic WAN
+  return `! Cisco IOS/IOS-XE IPsec Configuration for Cloudflare WAN
 ! Tunnel: ${p.tunnelName}
 ! Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 ! Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 ! FQDN: ${p.tunnelFqdn}
-! Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/cisco-ios-xe/
+! Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/cisco-ios-xe/
 
 ! ============================================
 ! IKEv2 Proposal & Policy
 ! ============================================
-crypto ikev2 proposal CF_MAGIC_WAN_PROPOSAL
+crypto ikev2 proposal CF_WAN_PROPOSAL
  encryption aes-cbc-256
  integrity sha512 sha384 sha256
  group 20
 
-crypto ikev2 policy CF_MAGIC_WAN_POLICY
+crypto ikev2 policy CF_WAN_POLICY
  match fvrf any
- proposal CF_MAGIC_WAN_PROPOSAL
+ proposal CF_WAN_PROPOSAL
 
 ! ============================================
 ! IKEv2 Keyring
 ! ============================================
-crypto ikev2 keyring CF_MAGIC_WAN_KEYRING
+crypto ikev2 keyring CF_WAN_KEYRING
  peer CF_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
   address ${p.cloudflareEndpoint}
   pre-shared-key ${p.psk}
@@ -964,28 +964,28 @@ crypto ikev2 keyring CF_MAGIC_WAN_KEYRING
 ! ============================================
 ! IKEv2 Profile
 ! ============================================
-crypto ikev2 profile CF_MAGIC_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
+crypto ikev2 profile CF_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
  match identity remote address ${p.cloudflareEndpoint} 255.255.255.255
  identity local fqdn ${p.tunnelFqdn}
  authentication remote pre-share
  authentication local pre-share
- keyring local CF_MAGIC_WAN_KEYRING
+ keyring local CF_WAN_KEYRING
  no config-exchange request${p.enableNatT ? "\n nat force-encap" : ""}
 
 ! ============================================
 ! IPsec Profile
 ! ============================================
-crypto ipsec profile CF_MAGIC_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
+crypto ipsec profile CF_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
  set security-association lifetime kilobytes disable
  set security-association replay disable
  set pfs group20
- set ikev2-profile CF_MAGIC_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
+ set ikev2-profile CF_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
 
 ! ============================================
 ! Tunnel Interface
 ! ============================================
 interface Tunnel1
- description Cloudflare Magic WAN - ${p.tunnelName}
+ description Cloudflare WAN - ${p.tunnelName}
  ip address ${customerIp} 255.255.255.254
  ip mtu 1450
  ip tcp adjust-mss 1350
@@ -993,7 +993,7 @@ interface Tunnel1
  tunnel mode ipsec ipv4
  tunnel destination ${p.cloudflareEndpoint}
  tunnel path-mtu-discovery
- tunnel protection ipsec profile CF_MAGIC_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
+ tunnel protection ipsec profile CF_WAN_${p.tunnelName.toUpperCase().replace(/-/g, "_")}
 
 ! ============================================
 ! Troubleshooting - Enable IKE invalid SPI recovery
@@ -1004,22 +1004,22 @@ crypto isakmp invalid-spi-recovery
 
 // ============================================
 // Cisco SD-WAN (Viptela)
-// Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/viptela/
+// Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/viptela/
 // ============================================
 function generateCiscoSdwan(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
 
   if (p.tunnelType === "gre") {
-    return `! Cisco SD-WAN GRE Configuration for Cloudflare Magic WAN
+    return `! Cisco SD-WAN GRE Configuration for Cloudflare WAN
 ! Tunnel: ${p.tunnelName}
 ! Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 ! Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
-! Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/viptela/
+! Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/viptela/
 
 vpn 0
  interface gre1
-  description "Cloudflare Magic WAN - ${p.tunnelName}"
+  description "Cloudflare WAN - ${p.tunnelName}"
   ip address ${customerIp}/31
   tunnel-source-interface ge0/0
   tunnel-destination ${p.cloudflareEndpoint}
@@ -1029,17 +1029,17 @@ vpn 0
 `;
   }
 
-  return `! Cisco SD-WAN IPsec Configuration for Cloudflare Magic WAN
+  return `! Cisco SD-WAN IPsec Configuration for Cloudflare WAN
 ! Tunnel: ${p.tunnelName}
 ! Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 ! Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 ! Note: IPsec only supported on Cisco 8000v in router mode
 ! FQDN: ${p.tunnelFqdn}
-! Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/viptela/
+! Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/viptela/
 
 vpn 0
  interface ipsec1
-  description "Cloudflare Magic WAN - ${p.tunnelName}"
+  description "Cloudflare WAN - ${p.tunnelName}"
   ip address ${customerIp}/31
   tunnel-source-interface ge0/0
   tunnel-destination ${p.cloudflareEndpoint}
@@ -1064,14 +1064,14 @@ vpn 0
 
 // ============================================
 // Fortinet FortiGate
-// Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/fortinet/
+// Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/fortinet/
 // ============================================
 function generateFortinet(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
 
   if (p.tunnelType === "gre") {
-    return `# FortiGate GRE Configuration for Cloudflare Magic WAN
+    return `# FortiGate GRE Configuration for Cloudflare WAN
 # Tunnel: ${p.tunnelName}
 # Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 # Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
@@ -1096,12 +1096,12 @@ end
 `;
   }
 
-  return `# FortiGate IPsec Configuration for Cloudflare Magic WAN
+  return `# FortiGate IPsec Configuration for Cloudflare WAN
 # Tunnel: ${p.tunnelName}
 # Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 # Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 # FQDN: ${p.tunnelFqdn}
-# Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/fortinet/
+# Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/fortinet/
 
 # ============================================
 # REQUIRED Global Settings
@@ -1111,7 +1111,7 @@ config system settings
 end${p.enableNatT ? `
 
 # WARNING: This is a GLOBAL setting that affects ALL tunnels on this device!
-# Only apply if you need NAT-T for Magic WAN and understand the impact.
+# Only apply if you need NAT-T for Cloudflare WAN and understand the impact.
 config system global
     set ike-port 4500
 end` : ""}
@@ -1164,14 +1164,14 @@ end
 
 // ============================================
 // Palo Alto Networks
-// Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/palo-alto/
+// Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/palo-alto/
 // ============================================
 function generatePaloAlto(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
 
   if (p.tunnelType === "gre") {
-    return `# Palo Alto GRE Configuration for Cloudflare Magic WAN
+    return `# Palo Alto GRE Configuration for Cloudflare WAN
 # Tunnel: ${p.tunnelName}
 # Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 # Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
@@ -1184,15 +1184,15 @@ set zone Cloudflare network layer3 tunnel.1
 `;
   }
 
-  const gwName = `CF_Magic_WAN_IKE_${p.tunnelName.toUpperCase().replace(/-/g, "_")}`;
-  const ipsecName = `CF_Magic_WAN_IPsec_${p.tunnelName.toUpperCase().replace(/-/g, "_")}`;
+  const gwName = `CF_WAN_IKE_${p.tunnelName.toUpperCase().replace(/-/g, "_")}`;
+  const ipsecName = `CF_WAN_IPsec_${p.tunnelName.toUpperCase().replace(/-/g, "_")}`;
 
-  return `# Palo Alto IPsec Configuration for Cloudflare Magic WAN
+  return `# Palo Alto IPsec Configuration for Cloudflare WAN
 # Tunnel: ${p.tunnelName}
 # Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 # Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 # FQDN: ${p.tunnelFqdn}
-# Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/palo-alto/
+# Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/palo-alto/
 
 # ============================================
 # IKE Crypto Profile (Phase 1)
@@ -1258,19 +1258,19 @@ set zone Cloudflare_L3_Zone network layer3 tunnel.1
 
 // ============================================
 // Juniper SRX
-// Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/juniper/
+// Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/juniper/
 // ============================================
 function generateJuniper(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
 
   if (p.tunnelType === "gre") {
-    return `# Juniper SRX GRE Configuration for Cloudflare Magic WAN
+    return `# Juniper SRX GRE Configuration for Cloudflare WAN
 # Tunnel: ${p.tunnelName}
 # Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 # Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 
-set interfaces gr-0/0/0 unit 0 description "Cloudflare Magic WAN - ${p.tunnelName}"
+set interfaces gr-0/0/0 unit 0 description "Cloudflare WAN - ${p.tunnelName}"
 set interfaces gr-0/0/0 unit 0 tunnel source ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
 set interfaces gr-0/0/0 unit 0 tunnel destination ${p.cloudflareEndpoint}
 set interfaces gr-0/0/0 unit 0 family inet address ${customerIp}/31
@@ -1283,12 +1283,12 @@ set security zones security-zone cloudflare interfaces gr-0/0/0.0 host-inbound-t
 
   const tunnelId = p.tunnelName.toLowerCase().replace(/-/g, "_");
 
-  return `# Juniper SRX IPsec Configuration for Cloudflare Magic WAN
+  return `# Juniper SRX IPsec Configuration for Cloudflare WAN
 # Tunnel: ${p.tunnelName}
 # Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 # Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 # FQDN: ${p.tunnelFqdn}
-# Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/juniper/
+# Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/juniper/
 
 # ============================================
 # Tunnel Interface (st0)
@@ -1308,50 +1308,50 @@ set security zones security-zone untrust interfaces ge-0/0/0.0 host-inbound-traf
 # ============================================
 # IKE Proposal (Phase 1)
 # ============================================
-set security ike proposal cf_magic_wan_ike_prop authentication-method pre-shared-keys
-set security ike proposal cf_magic_wan_ike_prop dh-group group20
-set security ike proposal cf_magic_wan_ike_prop authentication-algorithm sha-256
-set security ike proposal cf_magic_wan_ike_prop encryption-algorithm aes-256-cbc
-set security ike proposal cf_magic_wan_ike_prop lifetime-seconds 86400
+set security ike proposal cf_wan_ike_prop authentication-method pre-shared-keys
+set security ike proposal cf_wan_ike_prop dh-group group20
+set security ike proposal cf_wan_ike_prop authentication-algorithm sha-256
+set security ike proposal cf_wan_ike_prop encryption-algorithm aes-256-cbc
+set security ike proposal cf_wan_ike_prop lifetime-seconds 86400
 
 # ============================================
 # IKE Policy
 # ============================================
-set security ike policy cf_magic_wan_${tunnelId}_pol mode main
-set security ike policy cf_magic_wan_${tunnelId}_pol proposals cf_magic_wan_ike_prop
-set security ike policy cf_magic_wan_${tunnelId}_pol pre-shared-key ascii-text "${p.psk}"
+set security ike policy cf_wan_${tunnelId}_pol mode main
+set security ike policy cf_wan_${tunnelId}_pol proposals cf_wan_ike_prop
+set security ike policy cf_wan_${tunnelId}_pol pre-shared-key ascii-text "${p.psk}"
 
 # ============================================
 # IKE Gateway
 # ============================================
-set security ike gateway cf_magic_wan_gw_${tunnelId} ike-policy cf_magic_wan_${tunnelId}_pol
-set security ike gateway cf_magic_wan_gw_${tunnelId} address ${p.cloudflareEndpoint}
-set security ike gateway cf_magic_wan_gw_${tunnelId} local-identity hostname ${p.tunnelFqdn}
-set security ike gateway cf_magic_wan_gw_${tunnelId} external-interface ge-0/0/0.0
-set security ike gateway cf_magic_wan_gw_${tunnelId} version v2-only
+set security ike gateway cf_wan_gw_${tunnelId} ike-policy cf_wan_${tunnelId}_pol
+set security ike gateway cf_wan_gw_${tunnelId} address ${p.cloudflareEndpoint}
+set security ike gateway cf_wan_gw_${tunnelId} local-identity hostname ${p.tunnelFqdn}
+set security ike gateway cf_wan_gw_${tunnelId} external-interface ge-0/0/0.0
+set security ike gateway cf_wan_gw_${tunnelId} version v2-only
 # NAT-T is enabled by default on SRX and will auto-detect NAT
 
 # ============================================
 # IPsec Proposal (Phase 2)
 # ============================================
-set security ipsec proposal cf_magic_wan_ipsec_prop protocol esp
-set security ipsec proposal cf_magic_wan_ipsec_prop authentication-algorithm hmac-sha-256-128
-set security ipsec proposal cf_magic_wan_ipsec_prop encryption-algorithm aes-256-cbc
-set security ipsec proposal cf_magic_wan_ipsec_prop lifetime-seconds 28800
+set security ipsec proposal cf_wan_ipsec_prop protocol esp
+set security ipsec proposal cf_wan_ipsec_prop authentication-algorithm hmac-sha-256-128
+set security ipsec proposal cf_wan_ipsec_prop encryption-algorithm aes-256-cbc
+set security ipsec proposal cf_wan_ipsec_prop lifetime-seconds 28800
 
 # ============================================
 # IPsec Policy
 # ============================================
-set security ipsec policy cf_magic_wan_ipsec_pol proposals cf_magic_wan_ipsec_prop
+set security ipsec policy cf_wan_ipsec_pol proposals cf_wan_ipsec_prop
 
 # ============================================
 # IPsec VPN
 # ============================================
-set security ipsec vpn cf_magic_wan_ipsec_${tunnelId} bind-interface st0.0
-set security ipsec vpn cf_magic_wan_ipsec_${tunnelId} ike gateway cf_magic_wan_gw_${tunnelId}
-set security ipsec vpn cf_magic_wan_ipsec_${tunnelId} ike no-anti-replay
-set security ipsec vpn cf_magic_wan_ipsec_${tunnelId} ike ipsec-policy cf_magic_wan_ipsec_pol
-set security ipsec vpn cf_magic_wan_ipsec_${tunnelId} establish-tunnels immediately
+set security ipsec vpn cf_wan_ipsec_${tunnelId} bind-interface st0.0
+set security ipsec vpn cf_wan_ipsec_${tunnelId} ike gateway cf_wan_gw_${tunnelId}
+set security ipsec vpn cf_wan_ipsec_${tunnelId} ike no-anti-replay
+set security ipsec vpn cf_wan_ipsec_${tunnelId} ike ipsec-policy cf_wan_ipsec_pol
+set security ipsec vpn cf_wan_ipsec_${tunnelId} establish-tunnels immediately
 
 # ============================================
 # Security Policies (adjust zones as needed)
@@ -1378,12 +1378,12 @@ function generateUbiquiti(p: ConfigParams): string {
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
 
   if (p.tunnelType === "gre") {
-    return `# Ubiquiti/VyOS GRE Configuration for Cloudflare Magic WAN
+    return `# Ubiquiti/VyOS GRE Configuration for Cloudflare WAN
 # Tunnel: ${p.tunnelName}
 # Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 # Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 
-set interfaces tunnel tun0 description "Cloudflare Magic WAN - ${p.tunnelName}"
+set interfaces tunnel tun0 description "Cloudflare WAN - ${p.tunnelName}"
 set interfaces tunnel tun0 encapsulation gre
 set interfaces tunnel tun0 local-ip ${p.customerEndpoint || "<TUNNEL_SOURCE>"}
 set interfaces tunnel tun0 remote-ip ${p.cloudflareEndpoint}
@@ -1394,12 +1394,12 @@ set interfaces tunnel tun0 mtu 1476
 `;
   }
 
-  return `# Ubiquiti/VyOS IPsec Configuration for Cloudflare Magic WAN
+  return `# Ubiquiti/VyOS IPsec Configuration for Cloudflare WAN
 # Tunnel: ${p.tunnelName}
 # Tunnel Endpoint (public): ${p.cloudflareEndpoint}
 # Tunnel Interface: Customer ${customerIp} <-> Cloudflare ${cloudflareIp} (/31)
 # FQDN: ${p.tunnelFqdn}
-# Reference: https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/ubiquiti/
+# Reference: https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/ubiquiti/
 #
 # IMPORTANT: EdgeOS 2.0+ required! EdgeOS 1.x has a strongSwan bug where
 #            inbound IPsec SAs are not installed, causing tunnel to fail.
@@ -1437,7 +1437,7 @@ set vpn ipsec esp-group CF-MWAN-ESP mode tunnel
 # ============================================
 # Site-to-Site Peer
 # ============================================
-set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} description "Cloudflare Magic WAN - ${p.tunnelName}"
+set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} description "Cloudflare WAN - ${p.tunnelName}"
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication mode pre-shared-secret
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication pre-shared-secret '${p.psk}'
 set vpn ipsec site-to-site peer ${p.cloudflareEndpoint} authentication id ${p.customerEndpoint || "<YOUR-PUBLIC-IP>"}
@@ -1455,7 +1455,7 @@ set vpn ipsec nat-traversal enable
 # ============================================
 # VTI Interface - MTU 1436
 # ============================================
-set interfaces vti vti0 description "Cloudflare Magic WAN - ${p.tunnelName}"
+set interfaces vti vti0 description "Cloudflare WAN - ${p.tunnelName}"
 set interfaces vti vti0 address ${customerIp}/31
 set interfaces vti vti0 mtu 1436
 
@@ -1505,11 +1505,11 @@ function generatePfSenseText(p: ConfigParams): string {
   const interfaceName = `MWAN_${p.tunnelName.replace(/[^a-zA-Z0-9]/g, "_")}`;
 
   return `================================================================================
-  pfSense IPsec Configuration for Cloudflare Magic WAN
+  pfSense IPsec Configuration for Cloudflare WAN
 ================================================================================
 
   Tunnel Name:        ${p.tunnelName}
-  Reference Docs:     https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/pfsense/
+  Reference Docs:     https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/pfsense/
 
 ================================================================================
   QUICK REFERENCE - Copy These Values
@@ -1538,7 +1538,7 @@ function generatePfSenseText(p: ConfigParams): string {
 
   GENERAL INFORMATION
   -------------------
-  Description ............... Cloudflare Magic WAN - ${p.tunnelName}
+  Description ............... Cloudflare WAN - ${p.tunnelName}
   Disabled .................. [ ] Leave unchecked
   Key Exchange version ...... IKEv2
   Internet Protocol ......... IPv4
@@ -1667,7 +1667,7 @@ function generatePfSenseText(p: ConfigParams): string {
   Protocol .................. Any
   Source .................... Any
   Destination ............... Any
-  Description ............... Allow Magic WAN Traffic
+  Description ............... Allow Cloudflare WAN Traffic
 
   >>> Click "Save"
   >>> Click "Apply Changes"
@@ -1737,7 +1737,7 @@ function generatePfSenseXml(p: ConfigParams): string {
   const customerIp = getCustomerIp(p.interfaceAddress);
   const cloudflareIp = getCloudflareIp(p.interfaceAddress);
   const uniqueId = Math.random().toString(16).substr(2, 13);
-  const description = `Cloudflare Magic WAN - ${p.tunnelName}`;
+  const description = `Cloudflare WAN - ${p.tunnelName}`;
   const userId = p.tunnelFqdn.startsWith('ipsec@') ? p.tunnelFqdn : 'ipsec@' + p.tunnelFqdn;
 
   if (p.tunnelType === "gre") {
@@ -1750,7 +1750,7 @@ function generatePfSenseXml(p: ConfigParams): string {
 
   return `<?xml version="1.0"?>
 <!--
-  pfSense IPsec Configuration for Cloudflare Magic WAN
+  pfSense IPsec Configuration for Cloudflare WAN
   Tunnel: ${p.tunnelName}
   Generated: ${new Date().toISOString()}
 
@@ -1860,7 +1860,7 @@ function getHtml(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Magic WAN Configuration Generator</title>
+  <title>Cloudflare WAN Configuration Generator</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23f6821f'/%3E%3Cstop offset='100%25' stop-color='%23ff9d4d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='6' fill='url(%23g)'/%3E%3Cpath d='M22 13c-.4-2-2-3.5-4-3.5-1.8 0-3.3 1.2-3.8 2.8H13.5c-1.8 0-3.2 1.4-3.2 3.2s1.4 3.2 3.2 3.2h8.8c1.5 0 2.8-1.3 2.8-2.8s-1.1-2.7-2.4-2.9z' fill='white'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2755,7 +2755,7 @@ function getHtml(): string {
         <div class="logo-icon">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 9c-.5-2.5-2.5-4.5-5-4.5-2.2 0-4.1 1.5-4.7 3.5H6c-2.2 0-4 1.8-4 4s1.8 4 4 4h11c1.9 0 3.5-1.6 3.5-3.5S18.4 9 16.5 9z"/></svg>
         </div>
-        <div class="logo-text">Magic WAN <span>Config Generator</span></div>
+        <div class="logo-text">Cloudflare WAN <span>Config Generator</span></div>
       </div>
       <div class="status-badge">
         <div class="status-dot" id="statusDot"></div>
@@ -2788,10 +2788,10 @@ function getHtml(): string {
           </div>
           <div class="form-group">
             <label class="form-label">API Token</label>
-            <input type="password" class="form-input" id="apiToken" placeholder="API token with Magic WAN read access">
+            <input type="password" class="form-input" id="apiToken" placeholder="API token with Cloudflare WAN read access">
             <a href="https://developers.cloudflare.com/fundamentals/api/get-started/create-token/" target="_blank" class="docs-link">
               <svg class="docs-link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              Create token with "Magic WAN Read" permission
+              Create token with "Cloudflare WAN Read" permission
             </a>
           </div>
         </div>
@@ -2862,7 +2862,7 @@ function getHtml(): string {
               <option value="pfsense">pfSense</option>
               <option value="ubiquiti">Ubiquiti / VyOS</option>
             </select>
-            <a href="https://developers.cloudflare.com/magic-wan/configuration/manually/third-party/" target="_blank" class="docs-link">
+            <a href="https://developers.cloudflare.com/cloudflare-wan/configuration/manually/third-party/" target="_blank" class="docs-link">
               <svg class="docs-link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               View official device configuration guides
             </a>
@@ -2959,7 +2959,7 @@ function getHtml(): string {
           <div class="chat-welcome" id="chatWelcome">
             <svg class="chat-welcome-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             <div class="chat-welcome-title">Troubleshooting Assistant</div>
-            <div class="chat-welcome-text" id="chatWelcomeText">Paste your device logs, error messages, or describe the issue you're experiencing with your Magic WAN tunnel.</div>
+            <div class="chat-welcome-text" id="chatWelcomeText">Paste your device logs, error messages, or describe the issue you're experiencing with your Cloudflare WAN tunnel.</div>
           </div>
         </div>
         <div class="chat-input-area">
@@ -3415,7 +3415,7 @@ function getHtml(): string {
         <div class="chat-welcome" id="chatWelcome">
           <svg class="chat-welcome-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           <div class="chat-welcome-title">Troubleshooting Assistant</div>
-          <div class="chat-welcome-text" id="chatWelcomeText">Paste your device logs, error messages, or describe the issue you're experiencing with your Magic WAN tunnel.</div>
+          <div class="chat-welcome-text" id="chatWelcomeText">Paste your device logs, error messages, or describe the issue you're experiencing with your Cloudflare WAN tunnel.</div>
         </div>
       \`;
     }
