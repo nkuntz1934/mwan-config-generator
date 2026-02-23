@@ -8,6 +8,10 @@
     {
       "pattern": "cfwan.cf-client-demo.com",
       "custom_domain": true
+    },
+    {
+      "pattern": "mwan.cf-client-demo.com",
+      "custom_domain": true
     }
   ],
   "triggers": {

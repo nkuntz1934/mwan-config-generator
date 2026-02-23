@@ -18,6 +18,12 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    // Redirect old domain to new domain
+    if (url.hostname === "mwan.cf-client-demo.com") {
+      url.hostname = "cfwan.cf-client-demo.com";
+      return Response.redirect(url.toString(), 301);
+    }
+
     if (request.method === "POST" && url.pathname === "/api/tunnels") {
       return handleFetchTunnels(request);
     }
