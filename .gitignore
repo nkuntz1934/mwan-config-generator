@@ -3,3 +3,4 @@ node_modules/
 .dev.vars
 .mcp.json
 psk.key
+CLAUDE.md
